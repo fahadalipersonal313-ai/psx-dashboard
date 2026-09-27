@@ -2,11 +2,15 @@ pandas>=2.0
 numpy>=1.24
 requests>=2.31
 certifi>=2024.0
-truststore>=0.9
+truststore>=0.9          # routes HTTPS verification through the OS trust store
 vaderSentiment>=3.3
 APScheduler>=3.10
 schedule>=1.2
-streamlit==1.61.1
+streamlit==1.61.1        # pinned: floating versions let Streamlit Cloud rebuild
+                         # with new JS chunk hashes, so phones holding a cached
+                         # page shell 404 the chunks ("Importing a module script
+                         # failed" where st.metric should render)
 plotly>=5.18
-openpyxl>=3.1
+openpyxl>=3.1            # Excel (.xlsx) export of signals
+
 tzdata>=2025.2
