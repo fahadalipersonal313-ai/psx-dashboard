@@ -1,70 +1,46 @@
-"""Lightweight Streamlit view for the PSX engine runtime."""
-import time, hmac, requests
-import pandas as pd
+"""Bootstrap the exact psx-engine Streamlit frontend without cloning its Git history."""
+import os, sys, time, zipfile, tempfile, shutil
+from pathlib import Path
+import requests
 import streamlit as st
 
-st.set_page_config(page_title="PSX Shariah Engine", page_icon="📈", layout="wide")
-BASE="https://raw.githubusercontent.com/fahadalipersonal313-ai/psx-engine/runtime-state/"
+ENGINE_ZIP="https://github.com/fahadalipersonal313-ai/psx-engine/archive/refs/heads/main.zip"
+RUNTIME_DB="https://raw.githubusercontent.com/fahadalipersonal313-ai/psx-engine/runtime-state/psx_engine.db"
+ROOT=Path("/tmp/psx_engine_frontend")
+STAMP=ROOT/".ready"
 
-def get_json(name, timeout=5):
-    r=requests.get(BASE+name, timeout=timeout, headers={"Cache-Control":"no-cache"})
-    r.raise_for_status()
-    return r.json()
+def prepare():
+    # Current-tree ZIP contains no 415 MB Git history. Refresh code at most once
+    # per app process; Streamlit reruns reuse the extracted tree.
+    if not STAMP.exists():
+        shutil.rmtree(ROOT,ignore_errors=True)
+        ROOT.mkdir(parents=True,exist_ok=True)
+        zpath=ROOT/"engine.zip"
+        with requests.get(ENGINE_ZIP,stream=True,timeout=60) as r:
+            r.raise_for_status()
+            with open(zpath,"wb") as f:
+                for chunk in r.iter_content(1024*1024):
+                    if chunk: f.write(chunk)
+        with zipfile.ZipFile(zpath) as z:
+            z.extractall(ROOT)
+        zpath.unlink()
+        src=next(ROOT.glob("psx-engine-*"))
+        # Use runtime-state DB when available; main's compact DB remains fallback.
+        try:
+            with requests.get(RUNTIME_DB,stream=True,timeout=60) as r:
+                r.raise_for_status()
+                tmp=src/"psx_engine.db.tmp"
+                with open(tmp,"wb") as f:
+                    for chunk in r.iter_content(1024*1024):
+                        if chunk: f.write(chunk)
+                os.replace(tmp,src/"psx_engine.db")
+        except Exception:
+            pass
+        STAMP.write_text(str(time.time()))
+    return next(ROOT.glob("psx-engine-*"))
 
-def auth():
-    try: pw=st.secrets.get("DASHBOARD_PASSWORD")
-    except Exception: pw=None
-    if not pw: return
-    if st.session_state.get("auth_until",0)>time.time(): return
-    st.title("🔒 PSX Shariah Engine")
-    entered=st.text_input("Dashboard password",type="password")
-    if entered and hmac.compare_digest(str(entered),str(pw)):
-        st.session_state["auth_until"]=time.time()+3600
-        st.rerun()
-    if entered: st.error("Incorrect password.")
-    st.stop()
-
-@st.cache_data(ttl=60,show_spinner=False)
-def snapshot(): return get_json("dashboard_snapshot.json")
-
-@st.cache_data(ttl=120,show_spinner=False)
-def news():
-    try: return get_json("news_raw_24h.json")
-    except Exception: return {}
-
-auth()
-st.title("PSX Shariah Engine")
-st.caption("15 minute engine runtime view")
-
-try: snap=snapshot()
-except Exception as exc:
-    st.error("Engine runtime snapshot is temporarily unavailable.")
-    st.caption(str(exc))
-    st.stop()
-
-rows=snap.get("rows") or []
-generated=snap.get("generated_at") or "unknown"
-a,b=st.columns(2)
-a.metric("Tracked stocks",len(rows))
-b.metric("Snapshot generated",generated.replace("T"," ").replace("+00:00"," UTC"))
-
-if not rows:
-    st.warning("No current stock rows are available.")
-    st.stop()
-
-df=pd.DataFrame(rows)
-preferred=["symbol","price","signal","final_score","technical_score","risk_level","run_time","main_reason","main_risk"]
-cols=[c for c in preferred if c in df.columns]
-if "final_score" in df.columns: df=df.sort_values("final_score",ascending=False)
-st.subheader("Current signals")
-st.dataframe(df[cols] if cols else df,use_container_width=True,hide_index=True)
-
-payload=news(); items=payload.get("items") or []
-st.subheader("Latest news")
-st.caption(f"{len(items)} items in the current engine news window")
-for it in items[:25]:
-    title=it.get("title") or "Untitled"; url=it.get("url"); pub=it.get("source") or it.get("publisher") or ""; ts=it.get("published") or ""
-    if url: st.markdown(f"**[{title}]({url})**  \n{pub} · {ts}")
-    else: st.markdown(f"**{title}**  \n{pub} · {ts}")
-
-st.caption("Signals are displayed exactly as published by psx-engine runtime-state.")
+src=prepare()
+os.chdir(src)
+sys.path.insert(0,str(src))
+code=(src/"dashboard.py").read_text(encoding="utf-8")
+exec(compile(code,str(src/"dashboard.py"),"exec"),{"__name__":"__main__","__file__":str(src/"dashboard.py")})
