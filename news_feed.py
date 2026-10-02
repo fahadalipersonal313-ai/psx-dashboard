@@ -185,13 +185,15 @@ def load_raw():
                  "age_hours": age_h, "count": raw.get("count", 0)}
 
 
-def raw_headlines(symbol, limit=5):
+def raw_headlines(symbol, limit=5, raw=None):
     """List of {title, url, publisher, published} for this symbol's last-24h
     headlines (deduped by cleaned title). Empty list if none / file absent.
-    UNSCORED — for manual cross-verification only."""
-    raw, meta = load_raw()
-    if meta["status"] != "ok":
-        return []
+    UNSCORED — for manual cross-verification only. `raw` lets a caller pass
+    an already-loaded payload (the dashboard's freshest copy)."""
+    if raw is None:
+        raw, meta = load_raw()
+        if meta["status"] != "ok":
+            return []
     credible = [p.lower() for p in getattr(config, "NEWS_DISPLAY_PUBLISHERS", [])]
     sym = symbol.upper()
     out, seen = [], set()

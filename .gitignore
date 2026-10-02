@@ -1,0 +1,13 @@
+# Downloaded at runtime by runtime_bootstrap.py from psx-engine's runtime-state
+# branch; never committed here (this repo stays code-only).
+dashboard_snapshot.json
+news_raw_24h.json
+news_ai_ratings.json
+news_codex_ratings.json
+news_signals.json
+intraday_momentum.json
+short_horizon_latest.json
+short_horizon_status.json
+*.db
+__pycache__/
+*.pyc

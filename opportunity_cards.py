@@ -4,6 +4,7 @@ import math
 from datetime import datetime
 
 import config
+import news_desk
 import session_calendar as cal
 
 CSS = '''<style>
@@ -12,6 +13,7 @@ CSS = '''<style>
 .trade-badge{border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;background:#183c35;color:#8aefd0}.trade-badge.watch{background:#3b3420;color:#ffda83}
 .trade-levels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:13px 0}.trade-levels small{display:block;color:#a9bfd4;font-size:10px}.trade-levels b{font-size:16px;font-weight:650}
 .trade-line{margin:7px 0;overflow-wrap:anywhere}.trade-line strong{color:#a9bfd4;font-size:11px;display:inline-block;min-width:45px}.trade-risk{color:#ffcf9a}.trade-foot{border-top:1px solid #293b50;margin-top:10px;padding-top:8px;display:flex;justify-content:space-between;gap:10px;font-size:10px;color:#a9bfd4}
+.trade-heads{margin:8px 0 2px;font-size:12px}.trade-heads div{padding:3px 0;overflow-wrap:anywhere}.trade-heads small{color:#a9bfd4;font-size:10px}.trade-heads a{color:#8fd3ff}.trade-heads .none{color:#a9bfd4}
 .trade-news{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:#bfcee1}.trade-news span{background:#1c2a40;padding:3px 7px;border-radius:5px}
 @media(max-width:550px){.trade-levels{grid-template-columns:repeat(2,minmax(0,1fr))}.trade-head{align-items:flex-start}.trade-card{padding:13px}}
 </style>'''
@@ -30,7 +32,26 @@ def fmt(value, signed=False):
         return '—'
 
 
-def card_html(symbol, mode, state, levels, reason, condition, risk, news, stamp, foot):
+def headlines_html(headlines):
+    """The stock's own latest headlines, linked. None means not supplied
+    (layout preview); [] means checked and nothing in the last 24 hours."""
+    if headlines is None:
+        return ''
+    esc = html.escape
+    if not headlines:
+        return '<div class="trade-heads"><div class="none">No headlines about this stock in the last 24 hours.</div></div>'
+    rows = []
+    for h in headlines:
+        title = esc(h.get('title') or '')
+        url = h.get('url') or ''
+        if url.startswith('https://'):
+            title = f'<a href="{esc(url, quote=True)}" target="_blank" rel="noopener">{title}</a>'
+        meta = esc(' · '.join(x for x in (h.get('publisher') or '', str(h.get('published') or '')[:16]) if x))
+        rows.append(f'<div>📰 {title} <small>{meta}</small></div>')
+    return '<div class="trade-heads">' + ''.join(rows) + '</div>'
+
+
+def card_html(symbol, mode, state, levels, reason, condition, risk, news, stamp, foot, headlines=None):
     esc = html.escape
     badges = ''.join('<span>' + esc(str(n)) + '</span>' for n in news)
     values = ''.join('<div><small>' + esc(k) + '</small><b>' + esc(str(v)) + '</b></div>' for k, v in levels)
@@ -40,7 +61,7 @@ def card_html(symbol, mode, state, levels, reason, condition, risk, news, stamp,
             f'<div class="trade-levels">{values}</div><div class="trade-line"><strong>WHY</strong> {esc(reason)}</div>'
             f'<div class="trade-line"><strong>ENTRY</strong> {esc(condition)}</div>'
             f'<div class="trade-line trade-risk"><strong>RISK</strong> {esc(risk)}</div>'
-            f'<div class="trade-news">{badges}</div><div class="trade-foot"><span>{esc(stamp)}</span><span>{esc(foot)}</span></div></article>')
+            f'{headlines_html(headlines)}<div class="trade-news">{badges}</div><div class="trade-foot"><span>{esc(stamp)}</span><span>{esc(foot)}</span></div></article>')
 
 
 def reviewers():
@@ -54,12 +75,15 @@ def news_tags(symbol, reviews):
     tags = []
     for label, ratings, meta in reviews:
         rating = ratings.get(symbol)
-        desc = LABELS.get((rating or {}).get('rating'), 'No fresh review')
+        if meta.get('status') != 'ok':
+            desc = 'review out of date'
+        else:
+            desc = LABELS.get((rating or {}).get('rating'), 'not reviewed')
         tags.append(label + ': ' + desc)
     return tags
 
 
-def show_swing(st, rows, on_detail=None, details=True):
+def show_swing(st, rows, on_detail=None, details=True, raw=None):
     st.markdown(CSS, unsafe_allow_html=True)
     reviews = reviewers()
     st.caption('Swing opportunities · completed-session analysis. Check the live price before entry; these levels are not guaranteed fills.')
@@ -85,7 +109,8 @@ def show_swing(st, rows, on_detail=None, details=True):
                      ('Loss reference', fmt(r.get('stop_loss'))), ('Target reference', fmt(r.get('target1')))],
                     text(r.get('main_reason'))[:185], condition, text(r.get('main_risk'))[:150],
                     news_tags(symbol, reviews), 'Price session ' + text(r.get('decision_session')),
-                    'Data: ' + text(r.get('data_quality')) + ' · Shariah: ' + text(r.get('shariah_status'))), unsafe_allow_html=True)
+                    'Data: ' + text(r.get('data_quality')) + ' · Shariah: ' + text(r.get('shariah_status')),
+                    None if raw is None else news_desk.stock_headlines(symbol, raw)), unsafe_allow_html=True)
                 if not details:
                     continue
                 with st.expander('Full reason, levels & news · ' + symbol):

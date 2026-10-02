@@ -155,6 +155,23 @@ def fetch_eod(symbol):
                 "live": False,
                 "warning": (f"EOD fetch failed ({e}); using {len(bars)} banked "
                             f"daily bars through {as_of}.")}
+        # Indices (KMI30, the decision benchmark) are banked in daily_eod, not
+        # daily_ohlc, because PSX gives no High/Low for them. The fallback above
+        # never looked there, so when /timeseries/eod began answering 404 on
+        # 2026-09-25 the benchmark came back empty even for the 1,255 sessions
+        # already stored -- and decide() refuses every symbol without it.
+        eod = db.get_eod_history(symbol, limit=400)
+        if len(eod) >= 30:
+            df = pd.DataFrame([{"date": pd.to_datetime(b["date"]), "open": b["open"],
+                                "close": b["close"], "volume": b["volume"]} for b in eod])
+            as_of = eod[-1]["date"]
+            log.info("EOD for %s: using %d banked EOD rows through %s",
+                     symbol, len(eod), as_of)
+            return df[["date", "open", "close", "volume"]], {
+                "source": "banked EOD history (cached)", "as_of": as_of,
+                "live": False,
+                "warning": (f"EOD fetch failed ({e}); using {len(eod)} banked "
+                            f"EOD rows through {as_of}.")}
         return None, {"source": "PSX DPS end-of-day", "as_of": None,
                       "live": False,
                       "warning": f"EOD fetch failed ({e})."}

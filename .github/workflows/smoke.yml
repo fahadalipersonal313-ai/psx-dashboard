@@ -20,5 +20,6 @@ jobs:
           import short_horizon, short_horizon_panel, opportunity_cards
           import trading_review, portfolio_advisor, portfolio_risk, position_sizing
           import shariah_checker, corporate_actions, news_review_panel
+          import news_desk, remote_data, news_memory, depth_analysis, upward_candidates
           print("frontend dependency imports OK")
           PY
