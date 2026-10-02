@@ -728,9 +728,13 @@ if _db_path:
     config.DB_PATH = _db_path   # cache hit on a rerun: re-point this process too
 
 (tab_desk, tab_watch, tab_edge, tab_stock, tab_hist,
- tab_news, tab_reports) = st.tabs(
+ tab_news, tab_reports, tab_research) = st.tabs(
     ["Trading desk", "📋 Watchlist", "🧪 Past results", "🔍 Stock detail",
-     "📈 History", "📰 News", "📋 Reports"])
+     "📈 History", "📰 News", "📋 Reports", "🕯 Research"])
+
+with tab_research:
+    import research_panel
+    research_panel.show(st, database=config.DB_PATH)
 
 with tab_desk:
     import intraday_momentum
