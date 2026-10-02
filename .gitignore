@@ -11,3 +11,8 @@ short_horizon_status.json
 *.db
 __pycache__/
 *.pyc
+
+# Research reports stay in Actions artifacts; only compact evidence uses its own branch.
+research-output/
+research-downloads/
+research-checkpoints/

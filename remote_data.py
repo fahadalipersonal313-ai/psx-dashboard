@@ -14,6 +14,7 @@ import shutil
 import sqlite3
 import tempfile
 import time
+from contextlib import closing
 
 import config
 
@@ -44,7 +45,7 @@ def fetch_json(name, branch="main", ttl=300, get=None, timeout=4):
 
 def _valid_db(path):
     try:
-        with sqlite3.connect(path) as c:
+        with closing(sqlite3.connect(path)) as c:
             ok = c.execute("PRAGMA quick_check").fetchone()[0] == "ok"
             runs = c.execute("SELECT MAX(run_time) FROM runs").fetchone()[0]
         return ok and runs is not None
@@ -54,7 +55,7 @@ def _valid_db(path):
 
 def _latest_run(path):
     try:
-        with sqlite3.connect(path) as c:
+        with closing(sqlite3.connect(path)) as c:
             return c.execute("SELECT MAX(run_time) FROM runs").fetchone()[0] or ""
     except sqlite3.Error:
         return ""
