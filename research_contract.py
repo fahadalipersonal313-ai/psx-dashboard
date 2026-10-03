@@ -44,6 +44,13 @@ def validate(data):
         source_times[sid] = verified
         if verified > generated:
             raise ValueError('Source verified after artifact generation')
+        if source.get('published_date') is not None:
+            from zoneinfo import ZoneInfo
+            published_day=date.fromisoformat(source['published_date'])
+            if published_day > generated.astimezone(ZoneInfo('Asia/Karachi')).date():
+                raise ValueError('Future publication date')
+        if source.get('publication_precision') == 'date' and (source.get('published_at') is not None or not source.get('published_date')):
+            raise ValueError('Date-only publication must not invent a clock time')
         if source.get('published_at') is not None and stamp(source['published_at']) > generated:
             raise ValueError('Future publication time')
     def refs(item):
@@ -63,7 +70,8 @@ def validate(data):
                 raise ValueError('Available evidence needs sources')
             reference = reviewed_at or asof
             window = timedelta(hours=24 if reviewed_at is not None else 1)
-            if not any(reference - window <= source_times[s] <= generated for s in item['source_ids']):
+            upper = min(generated, reference + window) if reviewed_at is not None else generated
+            if not any(reference - window <= source_times[s] <= upper for s in item['source_ids']):
                 raise ValueError('Evidence has no source verified within its declared review window')
     for item in data['market_context']:
         if item['category'] not in ('macro','geopolitical','sector'):

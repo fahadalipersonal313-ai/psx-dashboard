@@ -51,6 +51,15 @@ class ContractTests(unittest.TestCase):
         v=fixture();v['sources'].append({**v['sources'][0],'id':'financial','verified_at':(NOW-timedelta(days=20)).isoformat(),'published_at':(NOW-timedelta(days=30)).isoformat()})
         f=v['stocks'][0]['fundamentals'];f.update(source_ids=['financial'],reviewed_at=(NOW-timedelta(days=20)).isoformat(),next_review_at=(NOW+timedelta(days=10)).isoformat());self.assertTrue(c.current(v,NOW))
 
+    def test_date_only_source_has_no_invented_clock(self):
+        v=fixture();s=v['sources'][0];s.update(published_at=None,published_date='2026-10-04',publication_precision='date');self.assertTrue(c.current(v,NOW))
+        s['published_at']=NOW.isoformat();self.assertFalse(c.current(v,NOW))
+        s['published_at']=None;s['published_date']='2027-01-01';self.assertFalse(c.current(v,NOW))
+
+    def test_financial_verification_cannot_be_rebound_to_new_news_read(self):
+        v=fixture();f=v['stocks'][0]['fundamentals'];f.update(reviewed_at=(NOW-timedelta(days=20)).isoformat(),next_review_at=(NOW+timedelta(days=10)).isoformat())
+        self.assertFalse(c.current(v,NOW))
+
     def test_unsafe_url_rejected(self):
         v=fixture();v['sources'][0]['url']='https://user:password@example.com';self.assertFalse(c.current(v,NOW))
 
@@ -68,6 +77,13 @@ class CombinedTests(unittest.TestCase):
     def test_obsolete_rules_hash_or_guard_binding_block(self):
         for field,value in [('strategy_version','obsolete-v1'),('config_hash','wrong'),('snapshot_hash','wrong')]:
             t=technical();t[field]=value;self.assertIsNone(self.row(tech=t)['plan'])
+
+    def test_research_block_is_separate_from_technical_reason(self):
+        v=fixture();v['market_context'][1].update(bias='adverse',summary='Verified geopolitical disruption')
+        t=technical();t.update(signal='Watch',main_reason='Market direction is only a technical warning')
+        r=self.row(context=v,tech=t)
+        self.assertTrue(any('Geopolitical' in x for x in r['blocked_reasons']))
+        self.assertEqual(r['technical_reason'],'Market direction is only a technical warning')
 
     def test_missing_action_audit_blocks(self):
         t=technical();t.pop('research_guard');self.assertIsNone(self.row(tech=t)['plan'])

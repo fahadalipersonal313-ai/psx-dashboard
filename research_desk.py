@@ -85,6 +85,8 @@ def build(context, snapshot=None, intraday=None, now=None):
     macro = context['market_context'] if context else []
     macro_missing = any(not any(x['category']==kind and x['status']=='available' for x in macro)
                         for kind in ('macro','geopolitical'))
+    global_reasons=[x['category'].capitalize()+' risk: '+x['summary'] for x in macro
+                    if x['category'] in ('macro','geopolitical') and x['status']=='available' and x['bias']=='adverse']
     global_adverse = any(x['category'] in ('macro','geopolitical') and x['status']=='available' and x['bias']=='adverse' for x in macro)
     result = []
     for symbol in contract.UNIVERSE:
@@ -98,8 +100,13 @@ def build(context, snapshot=None, intraday=None, now=None):
         if review:
             for key in ('news','sector'):
                 if review[key]['status']=='unavailable': missing.append(key.capitalize()+' review unavailable')
-        adverse = global_adverse or bool(review and any(review[k]['bias']=='adverse' for k in ('news','sector','fundamentals')))
+        blocked_reasons=list(global_reasons)
+        if review:
+            blocked_reasons.extend(k.capitalize()+' risk: '+review[k]['summary'] for k in ('news','sector','fundamentals')
+                                   if review[k]['status']=='available' and review[k]['bias']=='adverse')
+        adverse = bool(blocked_reasons)
         event_pending = bool(review and review['fundamentals']['event_review_required'])
+        if event_pending:blocked_reasons.append('Material company event requires a new financial review')
         # Known dated events are additional gates; missing dates are never invented.
         if review:
             for event in review['fundamentals'].get('events',[]):
@@ -107,10 +114,14 @@ def build(context, snapshot=None, intraday=None, now=None):
                 if event['kind']=='earnings' and 0 <= days <= 5:
                     event_pending=True
                     missing.append('Known earnings release within five calendar days')
+                    blocked_reasons.append('Known earnings release within five calendar days')
                 elif event['kind']=='corporate_action' and 0 <= days <= 1:
                     event_pending=True
                     missing.append('Imminent corporate action requires price-basis review')
+                    blocked_reasons.append('Imminent corporate action requires price-basis review')
         stance = review['horizons']['swing']['stance'] if review else 'unavailable'
+        if review and stance in ('avoid','cautious','unavailable'):
+            blocked_reasons.append('Swing research '+stance+': '+review['horizons']['swing']['rationale'])
         blocked = adverse or event_pending or stance in ('avoid','cautious','unavailable')
         swing_state = 'No current setup'
         if usable and plan and not blocked and not macro_missing and not missing:
@@ -155,10 +166,40 @@ def build(context, snapshot=None, intraday=None, now=None):
             investment = 'Long-term research: '+review['horizons']['investment']['stance']
         result.append({'symbol':symbol,'swing_state':swing_state,'intraday_state':intraday_state,
                        'investment_state':investment,'plan':plan,'missing':missing,
+                       'blocked_reasons':blocked_reasons,'technical_reason':reason,
                        'research':review,'technical':row,'quote':quote,'fresh_quote':current_quote,
                        'observation':obs,'fundamentals_current':fundamentals_ok})
     return {'evaluated_at':now.isoformat(),'research_current':bool(usable),'context':context,
             'market_open':cal.is_live(now),'rows':result}
+
+
+def pkt(value):
+    try:return contract.stamp(value).astimezone(cal.PKT).strftime('%a %d %b %Y, %I:%M %p PKT')
+    except (ValueError,TypeError,KeyError):return 'unavailable'
+
+
+def show_collection(st, status):
+    st.markdown('#### Intraday observation collection')
+    if not status:
+        st.info('Five-minute collection is configured for trading sessions. No capture has been published yet.')
+        return
+    st.write('Last capture: '+pkt(status.get('checked_at'))+' · '+str(status.get('current_usable_points',0))+
+             '/15 usable new source points · target every '+str(status.get('target_minutes',5))+' minutes')
+    st.caption('Scheduled poll windows elapsed: '+str(status.get('regular_poll_windows_elapsed',0))+
+               ' · windows observed: '+str(status.get('regular_poll_windows_observed',0))+
+               ' · missed windows: '+str(status.get('missed_poll_windows',0))+
+               '. Counts are as of the last capture; the exchange clock and a 60-second grace are used.')
+    st.caption('Partial delayed point observations only. Five-minute polling does not create complete 1-minute or 5-minute OHLCV candles. '
+               'Intraday entry, stop and target rules and paper fills are not implemented yet.')
+    with st.expander('Collection coverage, gaps and model prerequisites'):
+        st.dataframe([{'Stock':x['symbol'],'Source update (PKT)':pkt(x.get('source_as_of')),
+                       'Observed extra shares':x.get('observed_volume_delta'),
+                       'Actual source interval (seconds)':x.get('volume_interval_seconds'),
+                       'Quality':'; '.join(v.replace('_',' ') for v in x.get('quality_flags',[]))}
+                      for x in status.get('rows',[])],hide_index=True,width='stretch')
+        st.write(status.get('paper_strategy_status','Collection only'))
+        for item in status.get('prerequisites',[]):st.write('• '+item)
+        st.caption('Raw collection timestamp: '+str(status.get('checked_at')))
 
 
 def show(st):
@@ -168,9 +209,10 @@ def show(st):
     intraday = remote_data.fetch_json('research_quotes.json',branch='runtime-state',ttl=60,timeout=4)
     desk = build(context,snapshot,intraday)
     journal = remote_data.fetch_json('research_status.json',branch='runtime-state',ttl=60,timeout=4)
+    collection = remote_data.fetch_json('intraday_collection_status.json',branch='runtime-state',ttl=60,timeout=4)
     st.subheader('15-stock research desk')
     if journal:
-        st.caption('Prospective decision journal: '+str(journal.get('checked_at'))+' · '+str(journal.get('outcomes'))+' · no assumed fills')
+        st.caption('Prospective decision journal: '+pkt(journal.get('checked_at'))+' · '+str(journal.get('outcomes'))+' · no assumed fills')
     st.caption('Company news, sector, macro and event risk are combined here with guarded technical evidence. '
                'Original technical strategy and its historical results remain separately attributable.')
     st.warning('Intraday is delayed-data watch only: numeric entry, exit and stop levels are withheld because a snapshot-based intraday execution model has not been validated. Long-term views are financial research, with numeric valuation targets withheld.')
@@ -179,11 +221,12 @@ def show(st):
     if not desk['research_current']:
         st.warning('Research is missing, invalid or expired. Current combined entry plans are withheld until a new review arrives.')
     if desk['context']:
-        st.caption('Research as of '+desk['context']['as_of']+' · reviewed '+desk['context']['generated_at']+
-                   ' · expires '+desk['context']['expires_at'])
-    st.caption('Engine snapshot retrieved/generated: '+str((snapshot or {}).get('generated_at','unavailable'))+
-               ' · intraday scan: '+str((intraday or {}).get('checked_at','unavailable'))+
+        st.caption('Research as of '+pkt(desk['context']['as_of'])+' · reviewed '+pkt(desk['context']['generated_at'])+
+                   ' · expires '+pkt(desk['context']['expires_at']))
+    st.caption('Engine snapshot retrieved/generated: '+pkt((snapshot or {}).get('generated_at'))+
+               ' · intraday scan: '+pkt((intraday or {}).get('checked_at'))+
                ' · market '+('open' if desk['market_open'] else 'closed')+' · rechecked on each page refresh')
+    show_collection(st,collection)
     st.dataframe([{'Stock':r['symbol'],'Intraday':r['intraday_state'],'Swing':r['swing_state'],
                    'Long term':r['investment_state'],'Financial review':'current' if r['fundamentals_current'] else 'due / unavailable'}
                   for r in desk['rows']],hide_index=True,width="stretch")
@@ -194,7 +237,7 @@ def show(st):
         st.write(label+': '+row[key])
     quote = row['quote'] or {}
     if quote:
-        st.write('Last observed price: '+str(quote.get('price'))+' PKR · exchange/source update time: '+str(source_time(quote))+
+        st.write('Last observed price: '+str(quote.get('price'))+' PKR · exchange/source update time: '+pkt(source_time(quote))+
                  ' · session volume: '+str(quote.get('day_volume'))+(' · fresh delayed observation' if row['fresh_quote'] else ' · stale / outside session'))
     technical = row['technical'] or {}
     st.caption('Completed-session technical evidence: '+str(technical.get('decision_session','unavailable'))+
@@ -210,7 +253,11 @@ def show(st):
                    '. Recheck quote, spread, liquidity and event risk before any decision. Stop/target fills are not guaranteed; '
                    'gap, cost and circuit-limit risk remain. Exit review at stop, target, thesis invalidation or the strategy’s frozen holding deadline.')
     else:
-        st.write('Entry / stop / targets withheld for the combined call. '+('; '.join(row['missing']) or 'Material research risk or incomplete horizon review.'))
+        st.write('Entry / stop / targets are withheld for the combined call.')
+        for reason in row['blocked_reasons']:st.write('Research block: '+reason)
+        for reason in row['missing']:
+            if reason != row['technical_reason']:st.write('Evidence check: '+reason)
+    if row['technical_reason']:st.write('Separate technical screen: '+row['technical_reason'])
     review = row['research']
     if review:
         st.write('Thesis: '+review['thesis'])
@@ -219,14 +266,23 @@ def show(st):
             item=review[name]
             st.write(title+' · '+item['status']+' · '+item['bias']+': '+item['summary'])
         f=review['fundamentals']
-        st.caption('Financial period '+str(f.get('report_period'))+' · reviewed '+str(f.get('reviewed_at'))+
-                   ' · next monthly review '+str(f.get('next_review_at'))+' · event review '+('required' if f['event_review_required'] else 'not flagged'))
+        st.caption('Financial period '+str(f.get('report_period'))+' · reviewed '+pkt(f.get('reviewed_at'))+
+                   ' · next monthly review '+pkt(f.get('next_review_at'))+' · event review '+('required' if f['event_review_required'] else 'not flagged'))
+        if 'events' not in f:
+            st.caption('Dated event coverage is unknown; no complete earnings calendar is connected.')
+        elif f['events']:
+            st.write('Verified listed dates: '+'; '.join(e['kind'].replace('_',' ')+' '+e['date'] for e in f['events']))
+            st.caption('Only the listed verified dates are guarded; other future dates can still be unknown.')
+        else:
+            st.caption('No verified dated events are listed in this review. This is not proof that no events are scheduled.')
         if f['event_triggers']: st.write('Re-review triggers: '+'; '.join(f['event_triggers']))
         st.caption('Long-term numeric valuation target is withheld until a separately validated financial valuation model exists. '
                    'News sentiment is not counted as independent public/social sentiment. Sector evidence here is qualitative; a verified sector-index performance series is not yet connected.')
         for horizon in ('intraday','swing','investment'):
             st.write(horizon.capitalize()+' view: '+review['horizons'][horizon]['rationale'])
         with st.expander('Sources and publication times'):
+            st.caption('Raw source update: '+str(source_time(quote))+' · fetched: '+str(quote.get('fetched_at'))+
+                       ' · research as-of: '+str(desk['context']['as_of']))
             ids=set()
             for key in ('news','sector','fundamentals','public_sentiment'): ids.update(review[key]['source_ids'])
             for item in desk['context']['market_context']: ids.update(item['source_ids'])
@@ -234,10 +290,10 @@ def show(st):
                 if source['id'] in ids:
                     st.write(source['title'])
                     st.write(source['url'])
-                    st.caption('Published '+str(source.get('published_at') or 'time not verified')+' · checked '+source['verified_at']+' · '+source['kind'])
+                    st.caption('Published '+str(source.get('published_at') or ((source.get('published_date')+' (date only; time unknown)') if source.get('published_date') else 'time not verified'))+' · checked '+source['verified_at']+' · '+source['kind'])
     if desk['context']:
         with st.expander('Market-wide evidence'):
             for item in desk['context']['market_context']:
                 st.write(item['category'].capitalize()+' · '+item['status']+' · '+item['bias']+': '+item['summary'])
-    st.caption('Configured refresh targets (subject to scheduler health): engine observations every 15 minutes during exchange sessions; research every 30 minutes; '
+    st.caption('Configured refresh targets (subject to scheduler health): point observations every 5 minutes and technical analysis every 15 minutes during exchange sessions; research every 30 minutes; '
                'fundamentals monthly and on material events. Schedulers are best-effort, so freshness is checked here instead of assumed.')
