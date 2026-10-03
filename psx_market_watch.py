@@ -47,7 +47,7 @@ _CELL = re.compile(r"<td\b[^>]*>(.*?)</td>", re.S | re.I)
 # What to_bars() needs. `current` is the live price; DPS labels it variously, so
 # CURRENT_ALIASES is tried in order and the first present wins.
 REQUIRED = ("symbol", "open", "high", "low", "volume")
-CURRENT_ALIASES = ("current", "close", "last", "price", "ldcp")
+CURRENT_ALIASES = ("current", "close", "last", "price")
 
 
 def _clean(cell):

@@ -11,7 +11,7 @@ import config
 import session_calendar as cal
 
 PATH = Path(config.BASE_DIR) / 'intraday_observations.db'
-RULES = {'version': 'intraday-observation-v1', 'window_minutes': 15,
+RULES = {'version': 'intraday-observation-v2-source-window', 'window_minutes': 15,
          'anchor_tolerance_seconds': 120, 'minimum_gain_percent': 1,
          'minimum_recent_percent': .15, 'minimum_window_turnover': 1000000,
          'fresh_seconds': 1200, 'confirm_gap_min_seconds': 600,
@@ -69,7 +69,10 @@ def assess(quote, ticks, market_bar, now, eligible=True):
         except (ValueError, TypeError, OverflowError, OSError):
             continue
     points.sort()
-    target = now - timedelta(minutes=RULES['window_minutes'])
+    # DPS may be delayed: measure a full source-time window, then gate latency.
+    target = at - timedelta(minutes=RULES['window_minutes'])
+    out['window_end'] = at.isoformat()
+    out['source_latency_seconds'] = (now-at).total_seconds()
     anchors = [p for p in points if p[0] <= target and (target-p[0]).total_seconds() <= RULES['anchor_tolerance_seconds']]
     # Undated market-watch rows alone cannot establish today's opening price.
     # Require a current-session tick near the open agreeing with the exchange open.
@@ -91,12 +94,12 @@ def assess(quote, ticks, market_bar, now, eligible=True):
                                    'market_watch_open': op}
         out['gap_pct'] = (op / quote['prior_close'] - 1) * 100
         out['since_open_pct'] = (quote['price'] / op - 1) * 100
-    if not anchors or segment(target) != segment(now):
+    if not anchors or segment(target) != segment(at):
         out['reason'] = 'Need a complete 15-minute window within regular trading hours'
         return out
     anchor = anchors[-1]
     out['window_anchor'] = {'time': anchor[0].isoformat(), 'price': anchor[1], 'target_time': target.isoformat()}
-    window = [p for p in points if target < p[0] <= now]
+    window = [p for p in points if target < p[0] <= at]
     if not window:
         out['reason'] = 'No recent trades'
         return out

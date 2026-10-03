@@ -733,10 +733,14 @@ if _db_path:
      "📈 History", "📰 News", "📋 Reports", "🕯 Research"])
 
 with tab_research:
+    import research_desk
+    research_desk.show(st)
+    st.divider()
     import research_panel
     research_panel.show(st, database=config.DB_PATH)
 
 with tab_desk:
+    st.info("Guru research: open the Research tab for the 15-stock intraday, swing and long-term evidence desk. Freshness and missing inputs are shown before any conditional plan.")
     import intraday_momentum
     import opportunity_cards
     import news_desk

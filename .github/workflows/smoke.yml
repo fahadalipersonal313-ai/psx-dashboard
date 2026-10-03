@@ -21,5 +21,8 @@ jobs:
           import trading_review, portfolio_advisor, portfolio_risk, position_sizing
           import shariah_checker, corporate_actions, news_review_panel
           import news_desk, remote_data, news_memory, depth_analysis, upward_candidates
+          import research_desk, research_contract, research_calendar
           print("frontend dependency imports OK")
           PY
+      - name: Verify research freshness and safety gates
+        run: python -m unittest test_research_contract test_research_panel -q
