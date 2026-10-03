@@ -221,7 +221,7 @@ def show(st):
     if not desk['research_current']:
         st.warning('Research is missing, invalid or expired. Current combined entry plans are withheld until a new review arrives.')
     if desk['context']:
-        st.caption('Research as of '+pkt(desk['context']['as_of'])+' · reviewed '+pkt(desk['context']['generated_at'])+
+        st.caption('Research as of '+pkt(desk['context']['as_of'])+' · artifact generated '+pkt(desk['context']['generated_at'])+
                    ' · expires '+pkt(desk['context']['expires_at']))
     st.caption('Engine snapshot retrieved/generated: '+pkt((snapshot or {}).get('generated_at'))+
                ' · intraday scan: '+pkt((intraday or {}).get('checked_at'))+
