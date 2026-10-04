@@ -25,4 +25,4 @@ jobs:
           print("frontend dependency imports OK")
           PY
       - name: Verify research freshness and safety gates
-        run: python -m unittest test_research_contract test_research_panel test_research_actions test_research_paper test_research_sizing test_research_workspace -q
+        run: python -m unittest test_research_contract test_research_panel test_research_actions test_research_paper test_research_sizing test_research_workspace test_dashboard_public_access -q

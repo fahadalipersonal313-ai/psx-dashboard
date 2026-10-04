@@ -17,7 +17,6 @@ import os
 import json
 import runtime_bootstrap
 runtime_bootstrap.prepare()
-import hmac
 import time
 import requests
 
@@ -416,16 +415,8 @@ def bt_portfolio(data_version=None):
     return backtester.backtest_portfolio()
 
 
-def _password_configured():
-    try:
-        pw = st.secrets["DASHBOARD_PASSWORD"]
-    except Exception:
-        pw = os.environ.get("DASHBOARD_PASSWORD")
-    return pw
-
-
 def _auto_refresh():
-    """Refresh an open dashboard without discarding its authenticated session."""
+    """Refresh an open dashboard without discarding its current session."""
     secs = int(getattr(config, "DASHBOARD_REFRESH_SECONDS", 300))
     if secs <= 0:
         return
@@ -437,25 +428,6 @@ def _auto_refresh():
             st.rerun()
 
     refresh_tick()
-
-
-def _require_password():
-    pw = _password_configured()
-    if not pw:
-        st.error("Configure DASHBOARD_PASSWORD to access this dashboard.")
-        st.stop()
-    if 'k' in st.query_params:
-        del st.query_params['k']
-    if st.session_state.get('auth_until', 0) > time.time():
-        return
-    st.title("🔒 PSX Shariah Engine")
-    entered = st.text_input("Enter dashboard password", type="password")
-    if entered and hmac.compare_digest(str(entered), str(pw)):
-        st.session_state["auth_until"] = time.time() + 3600
-        st.rerun()
-    elif entered:
-        st.error("Incorrect password.")
-    st.stop()
 
 
 def _inject_compact_css():
@@ -480,7 +452,9 @@ def _inject_compact_css():
 
 # ----------------------------- load ---------------------------------------
 _inject_theme()
-_require_password()
+# Public access confirmed by the owner. Remove obsolete password-link parameters.
+if "k" in st.query_params:
+    del st.query_params["k"]
 _auto_refresh()
 # Fast first paint: use a tiny latest-run snapshot before touching SQLite.
 rows = []
