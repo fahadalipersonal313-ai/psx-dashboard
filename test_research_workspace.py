@@ -30,6 +30,9 @@ class WorkspaceTests(unittest.TestCase):
         at=AppTest.from_string(CODE).run(timeout=20)
         self.assertFalse(at.exception)
         self.assertEqual([x.value for x in at.metric][:3],['1','0','14'])
+        at.button(key='refresh_research_data').click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual([x.value for x in at.metric][:3],['1','0','14'])
         at.radio(key='research_action_filter').set_value('Ready for review').run()
         self.assertFalse(at.exception)
         for label,value in [('Capital',1000000.0),('Available cash',100000.0),('Modeled loss budget',1000.0),

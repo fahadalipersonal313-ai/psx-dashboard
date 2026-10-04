@@ -390,19 +390,10 @@ def freshest_news():
     return news_desk.load_freshest()
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def runtime_engine_state():
-    """.engine-state.json as the engine loop last published it. The loop
-    commits it to runtime-state; main's copy froze when the engine moved
-    there, which is why the header read 'engine checked 190h ago'."""
-    try:
-        r = requests.get("https://raw.githubusercontent.com/fahadalipersonal313-ai/"
-                         "psx-engine/runtime-state/.engine-state.json", timeout=3,
-                         headers={"Cache-Control": "no-cache"})
-        r.raise_for_status()
-        return r.json()
-    except Exception:
-        return None
+    """Published engine state, using the same refresh path as research JSON."""
+    import remote_data
+    return remote_data.fetch_json(".engine-state.json", branch="runtime-state", ttl=60, timeout=4)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -458,14 +449,17 @@ if "k" in st.query_params:
 _auto_refresh()
 # Fast first paint: use a tiny latest-run snapshot before touching SQLite.
 rows = []
+_snapshot_fallback = False
 # Runtime engine commits live on runtime-data so they do not redeploy this app.
 # Pull only the tiny latest snapshot for first paint.
 try:
-    _url = "https://raw.githubusercontent.com/fahadalipersonal313-ai/psx-engine/runtime-state/dashboard_snapshot.json"
-    _resp = requests.get(_url, timeout=3, headers={"Cache-Control": "no-cache"})
-    _resp.raise_for_status()
-    rows = list((_resp.json().get("rows") or []))
+    import remote_data
+    _snapshot = remote_data.fetch_json("dashboard_snapshot.json", branch="runtime-state", ttl=60, timeout=4)
+    if not isinstance(_snapshot, dict):
+        raise ValueError("Runtime snapshot refresh unavailable")
+    rows = [dict(row) for row in (_snapshot.get("rows") or [])]
 except Exception:
+    _snapshot_fallback = True
     try:
         with open("dashboard_snapshot.json", "r", encoding="utf-8") as _sf:
             rows = list((json.load(_sf).get("rows") or []))
@@ -479,6 +473,9 @@ if not rows:
     st.title("PSX Shariah Engine")
     st.error("Runtime snapshot is temporarily unavailable. Please refresh shortly.")
     st.stop()
+
+if _snapshot_fallback:
+    st.warning("Live technical snapshot refresh is unavailable. Showing the local cached snapshot with its original timestamps.")
 
 from history_view import explain_run
 for _r in rows:

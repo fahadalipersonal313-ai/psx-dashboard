@@ -141,3 +141,13 @@ The paper ledger's future 30-session window requires extending the calendar
 Maintenance warning now begins 1 November. If a complete holding window cannot
 be verified, the summary explicitly reports an enrollment blocker; no candidate
 is silently added with a guessed deadline.
+
+The frontend JSON reader bounds intermediary caching by its refresh window and
+rejects in-process cache timestamps ahead of the current clock. The Research
+refresh control forces a new read without changing any source/review timestamp.
+Each component retains its own provenance and fail-closed freshness checks;
+standalone files are not represented as one atomic market observation.
+
+The top technical snapshot and engine-status header use that same JSON reader,
+with no separate engine-status cache surviving a manual refresh. A local
+technical-snapshot fallback is explicitly labeled if the live read fails.

@@ -34,4 +34,31 @@ st.success('Public dashboard reached data load')
         self.assertFalse(at.exception)
         self.assertFalse(at.text_input)
 
+    def test_first_paint_uses_shared_snapshot_cache_without_mutating_it(self):
+        from unittest.mock import patch
+        import remote_data
+        source=Path(__file__).with_name('dashboard.py').read_text()
+        startup=source[source.index('# Fast first paint:'):source.index('\nif not rows:')]
+        snapshot={'rows':[{'symbol':'PRL','run_time':'original source time'}]}
+        with patch.object(remote_data,'fetch_json',return_value=snapshot) as get:
+            namespace={}
+            exec(startup,namespace)
+        get.assert_called_once_with('dashboard_snapshot.json',branch='runtime-state',ttl=60,timeout=4)
+        self.assertEqual(namespace['rows'],snapshot['rows'])
+        self.assertIsNot(namespace['rows'][0],snapshot['rows'][0])
+        self.assertFalse(namespace['_snapshot_fallback'])
+
+    def test_engine_header_has_no_independent_cache_layer(self):
+        import ast
+        from unittest.mock import patch
+        import remote_data
+        tree=ast.parse(Path(__file__).with_name('dashboard.py').read_text())
+        node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='runtime_engine_state')
+        self.assertEqual(node.decorator_list,[])
+        namespace={};exec(compile(ast.Module(body=[node],type_ignores=[]),'header_cache','exec'),namespace)
+        with patch.object(remote_data,'fetch_json',side_effect=[{'generation':1},{'generation':2}]) as get:
+            self.assertEqual(namespace['runtime_engine_state']()['generation'],1)
+            self.assertEqual(namespace['runtime_engine_state']()['generation'],2)
+        get.assert_called_with('.engine-state.json',branch='runtime-state',ttl=60,timeout=4)
+
 if __name__=='__main__':unittest.main()

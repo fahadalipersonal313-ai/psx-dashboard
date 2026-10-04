@@ -208,6 +208,10 @@ def show_collection(st, status):
 
 def show(st):
     import remote_data
+    st.subheader('15-stock research desk')
+    if st.button('Refresh research data',key='refresh_research_data'):
+        remote_data.clear_json_cache()
+        st.rerun()
     context = remote_data.fetch_json('research_context.json',branch='research-state',ttl=60,timeout=4)
     snapshot = remote_data.fetch_json('dashboard_snapshot.json',branch='runtime-state',ttl=60,timeout=4)
     intraday = remote_data.fetch_json('research_quotes.json',branch='runtime-state',ttl=60,timeout=4)
@@ -217,7 +221,6 @@ def show(st):
     comparisons = remote_data.fetch_json('research_comparisons.json',branch='runtime-state',ttl=60,timeout=4)
     paper = remote_data.fetch_json('research_paper_summary.json',branch='runtime-state',ttl=60,timeout=4)
     activity = remote_data.fetch_json('research_activity.json',branch='runtime-state',ttl=60,timeout=4)
-    st.subheader('15-stock research desk')
     if journal:
         st.caption('Prospective decision journal: '+pkt(journal.get('checked_at'))+' · '+str(journal.get('outcomes'))+' · no assumed fills')
     st.caption('Company news, sector, macro and event risk are combined here with guarded technical evidence. '
