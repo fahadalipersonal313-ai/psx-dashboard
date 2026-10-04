@@ -64,6 +64,9 @@ class PrepareTests(unittest.TestCase):
         self.assertTrue(all(shape.x0 == NOW.isoformat() for shape in plot.layout.shapes))
         self.assertFalse(plot.layout.xaxis.rangebreaks)
         self.assertEqual(plot.layout.xaxis.type, 'date')
+        self.assertIsNone(plot.layout.title.text)
+        self.assertEqual(plot.layout.legend.yanchor,'bottom')
+        self.assertEqual(plot.layout.legend.y,1.02)
 
     def test_inputs_are_not_mutated(self):
         r, c, h = row(), fixture(), history()

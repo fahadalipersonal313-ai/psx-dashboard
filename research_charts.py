@@ -489,8 +489,9 @@ def figure(prepared):
                 hovertemplate='%{text}<extra></extra>'), row=1, col=1)
     fig.update_layout(template='plotly_dark', paper_bgcolor='#111827', plot_bgcolor='#111827',
                       height=580, margin={'l': 45, 'r': 120 if overlay else 25, 't': 65, 'b': 40},
-                      title={'text': escape(prepared['symbol']) + ' · completed daily candles', 'font': {'size': 17}},
-                      legend={'orientation': 'h', 'y': 1.13}, hovermode='x unified',
+                      # The selected-stock heading already identifies the chart.
+                      # Keep the legend above the plot without a competing title.
+                      legend={'orientation': 'h', 'y': 1.02, 'yanchor': 'bottom', 'x': 0, 'xanchor': 'left'}, hovermode='x unified',
                       xaxis_rangeslider_visible=False, dragmode='pan')
     fig.update_xaxes(type='date', showgrid=True, gridcolor='rgba(148,163,184,.08)', rangeslider_visible=False)
     fig.update_yaxes(title_text='PKR · raw', gridcolor='rgba(148,163,184,.13)', row=1, col=1)
