@@ -104,6 +104,11 @@ class CombinedTests(unittest.TestCase):
         q=quote();now=NOW.replace(hour=4,minute=32);q['source_as_of']=now.replace(minute=27).isoformat();q['fetched_at']=now.isoformat()
         self.assertFalse(d.fresh_quote(q,now))
 
+    def test_future_artifact_narrative_is_withheld_as_well_as_levels(self):
+        v=fixture();v['generated_at']=(NOW+timedelta(minutes=1)).isoformat()
+        result=d.build(v,{'rows':[technical()]},{'prices':[quote()]},NOW)
+        self.assertIsNone(result['context']);self.assertIsNone(result['rows'][0]['research']);self.assertIsNone(result['rows'][0]['plan'])
+
     def test_future_quote_and_naive_source_time_fail_closed(self):
         for value in ('2026-10-05T06:01:00+00:00','2026-10-05T05:55:00'):
             q=quote();q['source_as_of']=value;self.assertFalse(d.fresh_quote(q,NOW))

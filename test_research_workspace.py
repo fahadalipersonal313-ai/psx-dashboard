@@ -57,4 +57,31 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertTrue(any('Confirm the cost assumptions' in x.value for x in at.warning))
 
+    def test_new_tabs_available_chart_and_evidence_navigation(self):
+        extra="""from test_research_charts import history
+"""
+        code=CODE.replace('context=fixture()',extra+'context=fixture()')
+        code=code.replace('    d.show(st)',"    with patch('research_charts.read_history',side_effect=lambda database,symbol,cutoff: history() if symbol=='PRL' else {'symbol':symbol,'cutoff':cutoff,'limit':42,'raw_rows':[],'actions':[],'action_schema_complete':False,'read_errors':['Fixture no data']}):\n        d.show(st)")
+        at=AppTest.from_string(code).run(timeout=20)
+        self.assertFalse(at.exception,[x.message for x in at.exception])
+        labels=[tab.label for tab in at.tabs]
+        for label in ('Morning brief','Annotated daily chart','Two-month planner','Why this status?'):
+            self.assertIn(label,labels)
+        self.assertTrue(at.get('plotly_chart'))
+        self.assertTrue(any('two calendar months' in x.value.lower() for x in at.caption))
+        at.selectbox(key='combined_research_symbol').select('SYS').run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any('No validated full daily candles' in x.value for x in at.info))
+        at.selectbox(key='combined_research_symbol').select('PRL').run()
+        self.assertFalse(at.exception)
+        self.assertTrue(at.get('plotly_chart'))
+
+    def test_row_selection_uses_filtered_display_order(self):
+        import research_workspace as w
+        shown=[{'symbol':'NRL'},{'symbol':'PRL'}]
+        self.assertEqual(w.selected_stock(shown,{'selection':{'rows':[0]}}),'NRL')
+        self.assertEqual(w.selected_stock(shown,{'selection':{'rows':[1]}}),'PRL')
+        for value in ([],[-1],[2],[True],['0']):
+            self.assertIsNone(w.selected_stock(shown,{'selection':{'rows':value}}))
+
 if __name__=='__main__':unittest.main()

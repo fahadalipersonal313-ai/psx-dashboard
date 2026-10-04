@@ -151,3 +151,71 @@ standalone files are not represented as one atomic market observation.
 The top technical snapshot and engine-status header use that same JSON reader,
 with no separate engine-status cache surviving a manual refresh. A local
 technical-snapshot fallback is explicitly labeled if the live read fails.
+
+## Annotated daily charts and rolling two-month planner (2026-10-04)
+
+These frontend views reuse the existing banked database and public research
+artifacts. They do not add a source collector, schedule, trade rule, order or
+private holdings journal. The existing candle-research study remains a separate
+section with its own frozen historical assumptions.
+
+`research_charts.py` opens the existing database read-only and validates a
+42-session completed-daily window against the independent exchange calendar.
+Only the two exact official full-OHLC source identities are accepted. Missing,
+duplicated, invalid or unexpected sessions stay explicit; no candles are filled
+in. Daily share-volume must be finite, nonnegative and integer-valued. Raw OHLC
+and volume remain unadjusted, with banked corporate actions and source/price-basis
+warnings. No unadjusted moving average is presented as the strategy's adjusted
+indicator, and delayed point samples are never turned into intraday candles.
+
+Current entry-zone, stop and target annotations require independently rederived
+technical and combined-research eligibility, matching stock/session/price basis,
+complete source/action evidence and consistent level geometry. Numeric reference
+segments start at the current evaluation time to the right of completed candles,
+not across the historical window. Their short visual display area is not a
+holding deadline or predicted target date. Ineligible overlays remain withheld
+while valid historical bars can still be viewed. Listed company events, source
+publication dates, known-at times and verification times remain separate;
+annotations do not claim that an event caused a price move or that a scheduled
+event actually occurred.
+
+`research_planner.py` presents a rolling window from today's Pakistan date through
+two calendar months, using month-end day clamping. That research window does not
+extend or replace the existing maximum 30-session swing holding rule, original
+paper candidate expiry, or immutable decision timestamps. Only current eligible
+numeric levels are shown. Thesis, countercase, constructive conditions and
+invalidation come from the existing reviewed evidence and guards. Upcoming
+issuer dates come only from verified listed events inside the window. Suggested
+weekly review dates and the existing financial-review due date are explicitly
+research maintenance, not issuer catalysts or newly scheduled reminders.
+Uncovered future exchange-calendar ranges are warned about, not invented.
+
+The source-linked checklist distinguishes rule/configuration identity, completed
+session, bound data/action audit, stored technical signal classification, numeric
+plan validation, research currency, macro/company/event risk, quote freshness
+and combined entry eligibility. A current financial review is separate from an
+adverse financial-risk veto. Unavailable independent public sentiment remains a
+coverage limitation; it is not a positive input or an added mandatory swing gate.
+Action-board row selection opens the selected stock's chart, planner and checks.
+
+`research_brief.py` derives a morning/pre-session view only from existing saved
+artifacts. A weekend or prior-day research cutoff is labeled cached prior review,
+even if its JSON was regenerated today. Current-session pre-open review and
+updates after the open have separate labels. Any qualifying overnight publication
+must have a genuine publication timestamp between the previous actual regular
+close and the target session's first open; date-only sources stay separate.
+Zero listed publications does not prove no news occurred. Dashboard-condition
+changes use engine recording times rather than invented publication times, and
+activity-checkpoint coverage is disclosed. Missing source categories, financial
+reviews and independent public sentiment stay visible. No chat messages or new
+schedules are produced by this display.
+
+Future-generated/as-of contexts and future-known source/event metadata are
+withheld from these narratives and annotations as well as numeric plans. Past
+expired evidence may remain only with explicit dated/stale labeling; it never
+becomes a new current review merely because the page was loaded again.
+
+Technical/context evidence buttons identify their targets as latest branch
+artifacts, which can advance after viewing. Their check details retain the
+observed run/research times and technical snapshot/configuration hashes; the
+latest-branch URL is not represented as an immutable copy of those inputs.

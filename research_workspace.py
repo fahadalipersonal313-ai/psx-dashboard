@@ -10,22 +10,30 @@ def show_overview(st,desk,journal,collection,comparisons,paper,activity):
     counts={k:sum(r['status']==k for r in rows) for k in ('Ready for review','Watching','Blocked')}
     for col,(label,count) in zip(st.columns(3),counts.items()):col.metric(label,count)
     st.caption('Ready means the existing research and price checks pass for review. It does not establish an executable price, suitable quantity or assured result. Intraday remains watch-only.')
-    tabs=st.tabs(['Actions','Paper scorecard','Compare stocks','Important changes'])
+    tabs=st.tabs(['Actions','Morning brief','Paper scorecard','Compare stocks','Important changes'])
     with tabs[0]:
         selected=st.radio('Show setups',['All 15','Ready for review','Watching','Blocked'],horizontal=True,key='research_action_filter')
         order={'Ready for review':0,'Watching':1,'Blocked':2}
         shown=sorted((r for r in rows if selected=='All 15' or r['status']==selected),key=lambda r:(order[r['status']],r['symbol']))
+        def explain_selected():
+            state=st.session_state.get('research_action_table',{})
+            symbol=selected_stock(shown,state)
+            if symbol is not None:st.session_state['combined_research_symbol']=symbol
         st.dataframe([{'Stock':r['symbol'],'Status':r['status'],'Next condition / reason':r['condition'],
                        'Entry reference':r['entry'],'Stop':r['stop'],'Target 1':r['target1'],'Target 2':r['target2'],
                        'Max holding sessions':r['holding_sessions'],
                        'Recheck by (PKT)':research_desk.pkt(r['entry_review_due']) if r['entry_review_due'] else 'New session / new valid review required',
-                       'Intraday':r['intraday'],'Long term':r['investment']} for r in shown],hide_index=True,width='stretch')
-        st.caption('Reference levels can be conditional while Watching. Only a new, valid quote in the frozen entry zone can support an entry review; all values are PKR. Detailed evidence is below.')
-    with tabs[1]:show_paper(st,paper)
-    with tabs[2]:
+                       'Intraday':r['intraday'],'Long term':r['investment']} for r in shown],hide_index=True,width='stretch',
+                     key='research_action_table',on_select=explain_selected,selection_mode='single-row')
+        st.caption('Select a stock row to open its chart, two-month planner and source-linked checks below. Reference levels can be conditional while Watching. Only a new, valid quote in the frozen entry zone can support an entry review; all values are PKR. Detailed evidence is below.')
+    with tabs[1]:
+        import research_brief
+        research_brief.show(st,research_brief.build(desk,activity,now=research_actions_time(desk)))
+    with tabs[2]:show_paper(st,paper)
+    with tabs[3]:
         show_comparisons(st,comparisons)
         show_concentration(st)
-    with tabs[3]:
+    with tabs[4]:
         for item in actions.health(desk,journal,collection):
             getattr(st,'warning' if item['severity']=='warning' else 'info')(item['title']+': '+item['detail'])
         recent=(activity or {}).get('items',[])
@@ -147,3 +155,18 @@ def show_concentration(st):
             if result['over_capital']:st.warning('Proposed position values exceed scenario capital.')
             st.dataframe([{'Sector':r['sector'],'Stocks':', '.join(r['stocks']),'Value PKR':round(r['value'],2),'Capital %':round(r['capital_pct'],2)} for r in result['sectors']],hide_index=True,width='stretch')
             st.caption('Total proposed allocation: '+str(round(result['capital_pct'],2))+'% of capital. Sector concentration alone does not measure covariance, diversification or portfolio drawdown.')
+
+
+def research_actions_time(desk):
+    import research_contract
+    return research_contract.stamp(desk['evaluated_at'])
+
+
+def selected_stock(shown,state):
+    """Map a selection against the actual displayed ordering, never all stocks."""
+    try:
+        rows=state['selection']['rows']
+        index=rows[0]
+        if type(index) is not int or not 0<=index<len(shown):return None
+        return shown[index]['symbol']
+    except (KeyError,TypeError,IndexError):return None

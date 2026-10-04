@@ -80,6 +80,8 @@ def build(context, snapshot=None, intraday=None, now=None):
     intraday_review_current = bool(usable and now-contract.stamp(context['as_of']) <= timedelta(minutes=60))
     try:
         contract.validate(context)
+        if any(contract.stamp(context[key])>now for key in ('as_of','generated_at')):
+            context=None
     except (ValueError,TypeError,KeyError,OverflowError):
         context = None
     rows = {x.get('symbol'):x for x in (snapshot or {}).get('rows',[]) if isinstance(x,dict)}
@@ -239,7 +241,7 @@ def show(st):
     import research_workspace
     research_workspace.show_overview(st,desk,journal,collection,comparisons,paper,activity)
     show_collection(st,collection)
-    selected = st.selectbox('Research stock',list(contract.UNIVERSE),key='combined_research_symbol')
+    selected = st.selectbox('Open stock chart, planner and status checks',list(contract.UNIVERSE),key='combined_research_symbol')
     row = next(r for r in desk['rows'] if r['symbol']==selected)
     st.markdown('#### '+selected+' · evidence and plan')
     for key,label in (('intraday_state','Intraday'),('swing_state','Swing'),('investment_state','Long term')):
@@ -251,56 +253,59 @@ def show(st):
     technical = row['technical'] or {}
     st.caption('Completed-session technical evidence: '+str(technical.get('decision_session','unavailable'))+
                ' · rule '+str(technical.get('strategy_version','unavailable'))+' · '+str(technical.get('signal','No data')))
-    if row['plan']:
-        p = row['plan']
-        st.write('Conditional reference entry PKR '+str(p['reference_entry'])+' · stop '+str(p['stop'])+
-                 ' · target 1 '+str(p['target1'])+' · target 2 '+str(p['target2'])+
-                 ' · initial risk '+str(p['risk_pct'])+'% · reward/risk '+str(p['reward_risk']))
-        if p.get('observed_entry'):
-            st.write('At observed quote '+str(p['observed_entry'])+' PKR: risk '+str(p['observed_risk_pct'])+'% · gross reward/risk '+str(p['observed_reward_risk'])+' before costs')
-        st.caption('Entry zone '+str(p['buy_zone_low'])+' to '+str(p['buy_zone_high'])+
-                   '. Recheck quote, spread, liquidity and event risk before any decision. Stop/target fills are not guaranteed; '
-                   'gap, cost and circuit-limit risk remain. Exit review at stop, target, thesis invalidation or the strategy’s frozen holding deadline.')
-    else:
-        st.write('Entry / stop / targets are withheld for the combined call.')
-        for reason in row['blocked_reasons']:st.write('Research block: '+reason)
-        for reason in row['missing']:
-            if reason != row['technical_reason']:st.write('Evidence check: '+reason)
-    if row['technical_reason']:st.write('Separate technical screen: '+row['technical_reason'])
+    import research_planner, config
+    research_planner.show(st,row,desk['context'],database=config.DB_PATH,now=contract.stamp(desk['evaluated_at']))
     research_workspace.show_sizing(st,row,comparisons)
-    review = row['research']
-    if review:
-        st.write('Thesis: '+review['thesis'])
-        st.write('Countercase: '+review['countercase'])
-        for name,title in (('news','Company news'),('sector','Sector'),('fundamentals','Fundamentals'),('public_sentiment','Public sentiment')):
-            item=review[name]
-            st.write(title+' · '+item['status']+' · '+item['bias']+': '+item['summary'])
-        f=review['fundamentals']
-        st.caption('Financial period '+str(f.get('report_period'))+' · reviewed '+pkt(f.get('reviewed_at'))+
-                   ' · next monthly review '+pkt(f.get('next_review_at'))+' · event review '+('required' if f['event_review_required'] else 'not flagged'))
-        if 'events' not in f:
-            st.caption('Dated event coverage is unknown; no complete earnings calendar is connected.')
-        elif f['events']:
-            st.write('Verified listed dates: '+'; '.join(e['kind'].replace('_',' ')+' '+e['date'] for e in f['events']))
-            st.caption('Only the listed verified dates are guarded; other future dates can still be unknown.')
+    with st.expander('Detailed current levels and full research notes'):
+        if row['plan']:
+            p = row['plan']
+            st.write('Conditional reference entry PKR '+str(p['reference_entry'])+' · stop '+str(p['stop'])+
+                     ' · target 1 '+str(p['target1'])+' · target 2 '+str(p['target2'])+
+                     ' · initial risk '+str(p['risk_pct'])+'% · reward/risk '+str(p['reward_risk']))
+            if p.get('observed_entry'):
+                st.write('At observed quote '+str(p['observed_entry'])+' PKR: risk '+str(p['observed_risk_pct'])+'% · gross reward/risk '+str(p['observed_reward_risk'])+' before costs')
+            st.caption('Entry zone '+str(p['buy_zone_low'])+' to '+str(p['buy_zone_high'])+
+                       '. Recheck quote, spread, liquidity and event risk before any decision. Stop/target fills are not guaranteed; '
+                       'gap, cost and circuit-limit risk remain. Exit review at stop, target, thesis invalidation or the strategy’s frozen holding deadline.')
         else:
-            st.caption('No verified dated events are listed in this review. This is not proof that no events are scheduled.')
-        if f['event_triggers']: st.write('Re-review triggers: '+'; '.join(f['event_triggers']))
-        st.caption('Long-term numeric valuation target is withheld until a separately validated financial valuation model exists. '
-                   'News sentiment is not counted as independent public/social sentiment. Sector evidence here is qualitative; a verified sector-index performance series is not yet connected.')
-        for horizon in ('intraday','swing','investment'):
-            st.write(horizon.capitalize()+' view: '+review['horizons'][horizon]['rationale'])
-        with st.expander('Sources and publication times'):
-            st.caption('Raw source update: '+str(source_time(quote))+' · fetched: '+str(quote.get('fetched_at'))+
-                       ' · research as-of: '+str(desk['context']['as_of']))
-            ids=set()
-            for key in ('news','sector','fundamentals','public_sentiment'): ids.update(review[key]['source_ids'])
-            for item in desk['context']['market_context']: ids.update(item['source_ids'])
-            for source in desk['context']['sources']:
-                if source['id'] in ids:
-                    st.write(source['title'])
-                    st.write(source['url'])
-                    st.caption('Published '+str(source.get('published_at') or ((source.get('published_date')+' (date only; time unknown)') if source.get('published_date') else 'time not verified'))+' · checked '+source['verified_at']+' · '+source['kind'])
+            st.write('Entry / stop / targets are withheld for the combined call.')
+            for reason in row['blocked_reasons']:st.write('Research block: '+reason)
+            for reason in row['missing']:
+                if reason != row['technical_reason']:st.write('Evidence check: '+reason)
+        if row['technical_reason']:st.write('Separate technical screen: '+row['technical_reason'])
+        review = row['research']
+        if review:
+            st.write('Thesis: '+review['thesis'])
+            st.write('Countercase: '+review['countercase'])
+            for name,title in (('news','Company news'),('sector','Sector'),('fundamentals','Fundamentals'),('public_sentiment','Public sentiment')):
+                item=review[name]
+                st.write(title+' · '+item['status']+' · '+item['bias']+': '+item['summary'])
+            f=review['fundamentals']
+            st.caption('Financial period '+str(f.get('report_period'))+' · reviewed '+pkt(f.get('reviewed_at'))+
+                       ' · next monthly review '+pkt(f.get('next_review_at'))+' · event review '+('required' if f['event_review_required'] else 'not flagged'))
+            if 'events' not in f:
+                st.caption('Dated event coverage is unknown; no complete earnings calendar is connected.')
+            elif f['events']:
+                st.write('Verified listed dates: '+'; '.join(e['kind'].replace('_',' ')+' '+e['date'] for e in f['events']))
+                st.caption('Only the listed verified dates are guarded; other future dates can still be unknown.')
+            else:
+                st.caption('No verified dated events are listed in this review. This is not proof that no events are scheduled.')
+            if f['event_triggers']: st.write('Re-review triggers: '+'; '.join(f['event_triggers']))
+            st.caption('Long-term numeric valuation target is withheld until a separately validated financial valuation model exists. '
+                       'News sentiment is not counted as independent public/social sentiment. Sector evidence here is qualitative; a verified sector-index performance series is not yet connected.')
+            for horizon in ('intraday','swing','investment'):
+                st.write(horizon.capitalize()+' view: '+review['horizons'][horizon]['rationale'])
+            with st.expander('Sources and publication times'):
+                st.caption('Raw source update: '+str(source_time(quote))+' · fetched: '+str(quote.get('fetched_at'))+
+                           ' · research as-of: '+str(desk['context']['as_of']))
+                ids=set()
+                for key in ('news','sector','fundamentals','public_sentiment'): ids.update(review[key]['source_ids'])
+                for item in desk['context']['market_context']: ids.update(item['source_ids'])
+                for source in desk['context']['sources']:
+                    if source['id'] in ids:
+                        st.write(source['title'])
+                        st.write(source['url'])
+                        st.caption('Published '+str(source.get('published_at') or ((source.get('published_date')+' (date only; time unknown)') if source.get('published_date') else 'time not verified'))+' · checked '+source['verified_at']+' · '+source['kind'])
     if desk['context']:
         with st.expander('Market-wide evidence'):
             for item in desk['context']['market_context']:
