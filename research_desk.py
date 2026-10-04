@@ -21,6 +21,10 @@ def source_time(quote):
 
 def fresh_quote(quote, now):
     try:
+        if quote.get('usable_point') is False or set(quote.get('quality_flags',[])) & {
+            'conflicting_source_timestamp','non_monotonic_source_timestamp','invalid_source_fields',
+            'future_timestamp','malformed_timestamp_or_source'}:
+            return False
         at = contract.stamp(source_time(quote))
         if quote.get('source_as_of'):
             fetched=contract.stamp(quote['fetched_at'])
@@ -210,6 +214,9 @@ def show(st):
     desk = build(context,snapshot,intraday)
     journal = remote_data.fetch_json('research_status.json',branch='runtime-state',ttl=60,timeout=4)
     collection = remote_data.fetch_json('intraday_collection_status.json',branch='runtime-state',ttl=60,timeout=4)
+    comparisons = remote_data.fetch_json('research_comparisons.json',branch='runtime-state',ttl=60,timeout=4)
+    paper = remote_data.fetch_json('research_paper_summary.json',branch='runtime-state',ttl=60,timeout=4)
+    activity = remote_data.fetch_json('research_activity.json',branch='runtime-state',ttl=60,timeout=4)
     st.subheader('15-stock research desk')
     if journal:
         st.caption('Prospective decision journal: '+pkt(journal.get('checked_at'))+' · '+str(journal.get('outcomes'))+' · no assumed fills')
@@ -226,10 +233,9 @@ def show(st):
     st.caption('Engine snapshot retrieved/generated: '+pkt((snapshot or {}).get('generated_at'))+
                ' · intraday scan: '+pkt((intraday or {}).get('checked_at'))+
                ' · market '+('open' if desk['market_open'] else 'closed')+' · rechecked on each page refresh')
+    import research_workspace
+    research_workspace.show_overview(st,desk,journal,collection,comparisons,paper,activity)
     show_collection(st,collection)
-    st.dataframe([{'Stock':r['symbol'],'Intraday':r['intraday_state'],'Swing':r['swing_state'],
-                   'Long term':r['investment_state'],'Financial review':'current' if r['fundamentals_current'] else 'due / unavailable'}
-                  for r in desk['rows']],hide_index=True,width="stretch")
     selected = st.selectbox('Research stock',list(contract.UNIVERSE),key='combined_research_symbol')
     row = next(r for r in desk['rows'] if r['symbol']==selected)
     st.markdown('#### '+selected+' · evidence and plan')
@@ -258,6 +264,7 @@ def show(st):
         for reason in row['missing']:
             if reason != row['technical_reason']:st.write('Evidence check: '+reason)
     if row['technical_reason']:st.write('Separate technical screen: '+row['technical_reason'])
+    research_workspace.show_sizing(st,row,comparisons)
     review = row['research']
     if review:
         st.write('Thesis: '+review['thesis'])
