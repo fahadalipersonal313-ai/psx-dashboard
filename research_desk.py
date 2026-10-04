@@ -26,13 +26,15 @@ def fresh_quote(quote, now):
             'future_timestamp','malformed_timestamp_or_source'}:
             return False
         at = contract.stamp(source_time(quote))
+        if not quote.get('source_as_of'):
+            return False
         if quote.get('source_as_of'):
             fetched=contract.stamp(quote['fetched_at'])
             if (quote.get('market') != 'REG' or quote.get('source_url') != 'https://dps.psx.com.pk/company/'+quote['symbol']
                     or not at <= fetched <= now or quote.get('volume_kind') != 'cumulative_session'):
                 return False
         return (cal.is_live(now) and cal.is_live(at) and cal.local_now(at).date() == cal.local_now(now).date()
-                and 0 <= (now-at).total_seconds() <= 1200 and number(quote['price'])
+                and 0 <= (now-at).total_seconds() < 1200 and number(quote['price'])
                 and quote['price'] > 0 and not quote.get('note')
                 and (quote.get('change_pct') is None or (number(quote['change_pct']) and abs(quote['change_pct']) <= 10.5)))
     except (ValueError, TypeError, KeyError):
@@ -41,8 +43,10 @@ def fresh_quote(quote, now):
 
 def technical_plan(row, now):
     """Fail closed at viewing time. No stale level becomes a current entry."""
-    if not row:
+    if not isinstance(row,dict) or not row:
         return None, 'No completed-session technical observation'
+    if not isinstance(row.get('research_guard'),dict):
+        return None, 'Research input audit failed validation: missing or malformed'
     try:
         import config, decision_engine
         if row.get('strategy_version') != config.STRATEGY_VERSION or row.get('config_hash') != decision_engine.digest(decision_engine.contract()):
@@ -52,7 +56,7 @@ def technical_plan(row, now):
         at = contract.stamp(row['run_time'])
         if at > now or row['decision_session'] != cal.last_completed(now):
             return None, 'Completed-session prices are stale or future-dated'
-        if not (row.get('research_guard') or {}).get('valid'):
+        if (row.get('research_guard') or {}).get('valid') is not True:
             return None, 'Current source/action/session audit incomplete: '+('; '.join((row.get('research_guard') or {}).get('checks',[])))
         if not row.get('snapshot_hash') or not row.get('config_hash'):
             return None, 'Versioned source evidence is missing'
@@ -74,19 +78,54 @@ def technical_plan(row, now):
         return None, 'Technical observation failed validation'
 
 
+def input_records(payload, key, now):
+    """Reject malformed/future envelopes and duplicate identities without choosing a winner."""
+    errors=[]
+    if not isinstance(payload,dict):return {}, ['Missing '+key+' artifact']
+    for field in ('generated_at','checked_at','fetched_at'):
+        if field in payload:
+            try:
+                if contract.stamp(payload[field])>now:raise ValueError('future')
+            except (ValueError,TypeError):return {}, [key+' artifact has an invalid or future '+field]
+    records=payload.get(key,[])
+    if not isinstance(records,list):return {}, ['Malformed '+key+' records']
+    result={};duplicates=set()
+    for row in records:
+        if not isinstance(row,dict) or not isinstance(row.get('symbol'),str):
+            errors.append('Malformed '+key+' record');continue
+        symbol=row['symbol']
+        try:
+            if key=='rows' and 'generated_at' in payload and contract.stamp(row['run_time']) >= contract.stamp(payload['generated_at'])+timedelta(seconds=1):
+                raise ValueError('technical record postdates snapshot')
+            if key in ('prices','observations'):
+                for field in ('checked_at','fetched_at'):
+                    if field in payload and contract.stamp(row['fetched_at'])>contract.stamp(payload[field]):
+                        raise ValueError('quote fetch postdates collection')
+                if 'started_at' in payload and contract.stamp(row['fetched_at'])<contract.stamp(payload['started_at']):
+                    raise ValueError('quote fetch predates collection')
+        except (ValueError,TypeError,KeyError) as exc:
+            errors.append(symbol+': '+key+' envelope binding invalid');duplicates.add(symbol)
+        if symbol in result:duplicates.add(symbol)
+        result[symbol]=row
+    for symbol in sorted(duplicates):
+        result.pop(symbol,None);errors.append(symbol+': invalid or duplicate '+key+' records withheld')
+    return result,errors
+
+
 def build(context, snapshot=None, intraday=None, now=None):
     now = now or datetime.now(timezone.utc)
     usable = contract.current(context,now)
-    intraday_review_current = bool(usable and now-contract.stamp(context['as_of']) <= timedelta(minutes=60))
+    intraday_review_current = bool(usable and now-contract.stamp(context['as_of']) < timedelta(minutes=60))
     try:
         contract.validate(context)
         if any(contract.stamp(context[key])>now for key in ('as_of','generated_at')):
             context=None
     except (ValueError,TypeError,KeyError,OverflowError):
         context = None
-    rows = {x.get('symbol'):x for x in (snapshot or {}).get('rows',[]) if isinstance(x,dict)}
-    quotes = {x.get('symbol'):x for x in (intraday or {}).get('prices',[]) if isinstance(x,dict)}
-    observations = {x.get('symbol'):x for x in (intraday or {}).get('observations',[]) if isinstance(x,dict)}
+    rows,row_errors = input_records(snapshot,'rows',now)
+    quotes,quote_errors = input_records(intraday,'prices',now)
+    observations,observation_errors = input_records(intraday,'observations',now)
+    input_errors=row_errors+quote_errors+observation_errors
     research = {x['symbol']:x for x in context['stocks']} if context else {}
     macro = context['market_context'] if context else []
     macro_missing = any(not any(x['category']==kind and x['status']=='available' for x in macro)
@@ -106,6 +145,8 @@ def build(context, snapshot=None, intraday=None, now=None):
         if review:
             for key in ('news','sector'):
                 if review[key]['status']=='unavailable': missing.append(key.capitalize()+' review unavailable')
+        fundamentals_ok = bool(review and contract.fundamentals_current(review['fundamentals'],now))
+        if not fundamentals_ok:missing.append('Current financial review unavailable or due')
         blocked_reasons=list(global_reasons)
         if review:
             blocked_reasons.extend(k.capitalize()+' risk: '+review[k]['summary'] for k in ('news','sector','fundamentals')
@@ -176,7 +217,7 @@ def build(context, snapshot=None, intraday=None, now=None):
                        'research':review,'technical':row,'quote':quote,'fresh_quote':current_quote,
                        'observation':obs,'fundamentals_current':fundamentals_ok})
     return {'evaluated_at':now.isoformat(),'research_current':bool(usable),'context':context,
-            'market_open':cal.is_live(now),'rows':result}
+            'market_open':cal.is_live(now),'rows':result,'input_errors':input_errors}
 
 
 def pkt(value):
@@ -208,21 +249,17 @@ def show_collection(st, status):
         st.caption('Raw collection timestamp: '+str(status.get('checked_at')))
 
 
-def show(st):
+def show(st, bundle=None):
     import remote_data
     st.subheader('15-stock research desk')
     if st.button('Refresh research data',key='refresh_research_data'):
         remote_data.clear_json_cache()
         st.rerun()
-    context = remote_data.fetch_json('research_context.json',branch='research-state',ttl=60,timeout=4)
-    snapshot = remote_data.fetch_json('dashboard_snapshot.json',branch='runtime-state',ttl=60,timeout=4)
-    intraday = remote_data.fetch_json('research_quotes.json',branch='runtime-state',ttl=60,timeout=4)
-    desk = build(context,snapshot,intraday)
-    journal = remote_data.fetch_json('research_status.json',branch='runtime-state',ttl=60,timeout=4)
-    collection = remote_data.fetch_json('intraday_collection_status.json',branch='runtime-state',ttl=60,timeout=4)
-    comparisons = remote_data.fetch_json('research_comparisons.json',branch='runtime-state',ttl=60,timeout=4)
-    paper = remote_data.fetch_json('research_paper_summary.json',branch='runtime-state',ttl=60,timeout=4)
-    activity = remote_data.fetch_json('research_activity.json',branch='runtime-state',ttl=60,timeout=4)
+    import research_signals
+    bundle = bundle or research_signals.load(now=datetime.now(timezone.utc))
+    context,snapshot,intraday = (bundle[k] for k in ('context','snapshot','intraday'))
+    desk = bundle['desk']
+    journal,collection,comparisons,paper,activity = (bundle[k] for k in ('journal','collection','comparisons','paper','activity'))
     if journal:
         st.caption('Prospective decision journal: '+pkt(journal.get('checked_at'))+' · '+str(journal.get('outcomes'))+' · no assumed fills')
     st.caption('Company news, sector, macro and event risk are combined here with guarded technical evidence. '

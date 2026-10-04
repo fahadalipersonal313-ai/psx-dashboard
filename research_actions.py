@@ -66,29 +66,42 @@ def health(desk,journal=None,collection=None,now=None):
     return out
 
 
-def fingerprints(desk):
+def fingerprints(desk,combined=None):
+    if combined is None:
+        import research_signals
+        combined=research_signals.from_desk(desk)
     result={}
+    signals={s['symbol']:s for s in combined['signals']}
     for r in desk['rows']:
         review=r.get('research') or {};news=review.get('news') or {};f=review.get('fundamentals') or {}
         result[r['symbol']]={'swing':r['swing_state'],'investment':r['investment_state'],
                              'company_review':news.get('summary'),'company_bias':news.get('bias'),
                              'financial_period':f.get('report_period'),'event_review_required':f.get('event_review_required'),
                              'events':f.get('events',[]),'blocked_reasons':r.get('blocked_reasons',[])}
+        if r['symbol'] in signals:
+            signal=signals[r['symbol']]
+            result[r['symbol']].update(primary_status=signal['status'],signal_version=combined['version'],
+                                      primary_reasons=signal.get('reasons',[signal.get('reason')]),
+                                      intraday=r['intraday_state'],quote_fresh=r['fresh_quote'],
+                                      research_current=desk['research_current'])
     return result
 
 
-def update_activity(desk,checkpoint_id,root='.',now=None):
+def update_activity(desk,checkpoint_id,root='.',now=None,combined=None):
     """Single writer; first observation is a baseline, not a batch of new alerts."""
     import research_paper
     now=now or datetime.now(timezone.utc);path=Path(root)/'research_activity.json'
     old=json.loads(path.read_text()) if path.exists() else {}
     if old and old.get('schema_version')!=1:raise ValueError('Unknown research activity schema')
     if old and contract.stamp(old['checked_at'])>now:raise ValueError('Activity clock regressed')
-    state=fingerprints(desk);items=list(old.get('items',[]))
+    state=fingerprints(desk,combined);items=list(old.get('items',[]))
     for symbol,current in state.items():
         before=old.get('state',{}).get(symbol)
         if before is None:continue
-        changes=[k for k in current if before.get(k)!=current[k]]
+        # Adding primary-decision attribution establishes a baseline for those
+        # fields. Existing evidence changes still alert during that upgrade;
+        # introducing new fields alone must not notify on all 15 stocks.
+        changes=[k for k in current if k in before and before[k]!=current[k]]
         if not changes:continue
         item={'symbol':symbol,'recorded_at':now.isoformat(),'checkpoint_id':checkpoint_id,
               'changed_fields':changes,'before':before,'after':current,

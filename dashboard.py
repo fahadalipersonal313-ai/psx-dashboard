@@ -408,7 +408,7 @@ def bt_portfolio(data_version=None):
 
 def _auto_refresh():
     """Refresh an open dashboard without discarding its current session."""
-    secs = int(getattr(config, "DASHBOARD_REFRESH_SECONDS", 300))
+    secs = min(60, int(getattr(config, "DASHBOARD_REFRESH_SECONDS", 300)))
     if secs <= 0:
         return
     st.session_state["_dashboard_refreshed_at"] = time.monotonic()
@@ -584,7 +584,7 @@ h2,h3{font-size:18px!important;text-shadow:none!important}
 .desk-note{padding:12px 16px;background:#111e30;border:1px solid #2b4058;border-radius:10px;color:#a9bfd4;font-size:13px}
 </style>""", unsafe_allow_html=True)
 st.title("PSX trading desk")
-st.caption("Intraday momentum and swing opportunities · prices, reasons and risk in one view")
+st.caption("15-stock combined research decisions · delayed observations, reasons and risk in one view")
 
 
 def tile(col, label, value_html, sub=""):
@@ -619,12 +619,23 @@ _whatif_active = bool((latest["display_signal"] != latest["signal"]).any())
 buys = latest[latest["display_signal"].isin(["Strong Buy", "Buy"])]
 exits = latest[latest["display_signal"] == "Exit"]
 
-st.markdown(
-    f'<div style="display:flex;gap:20px;align-items:center;font-size:13px;'
-    f'opacity:.8;margin:2px 0 10px">{regime_pill(regime)}'
-    f'<span><b>{len(buys)}</b> buys · <b>{len(exits)}</b> exits</span>'
-    f'<span>updated {_last_updated_html}</span></div>',
-    unsafe_allow_html=True)
+# One uncached evaluation feeds header, cards, watchlist, stock detail and Research.
+import research_signals
+import research_signal_cards
+import research_desk
+from datetime import datetime, timezone
+_research_bundle = research_signals.load(snapshot=({} if _snapshot_fallback else _snapshot))
+_combined = _research_bundle['combined']
+_signal_now = research_signals.contract.stamp(_combined['evaluated_at'])
+if st.button('Refresh Trading desk', key='refresh_trading_desk'):
+    remote_data.clear_json_cache()
+    st.rerun()
+st.caption(str(_combined['counts']['Ready for review'])+' ready for review · '+
+           str(_combined['counts']['Watching'])+' watching · '+str(_combined['counts']['Blocked'])+
+           ' blocked · 15 research-tracked stocks')
+st.caption('Combined checks evaluated '+research_desk.pkt(_combined['evaluated_at'])+
+           ' · '+_combined['version']+' · open pages target a recheck every minute while connected')
+st.markdown(f'<div style="font-size:13px;opacity:.8">{regime_pill(regime)} · engine {_last_updated_html}</div>',unsafe_allow_html=True)
 
 # Staleness banner — louder than the tile, only shown when data is past amber.
 if not _market_live:
@@ -705,87 +716,23 @@ if _db_path:
 
 with tab_research:
     import research_desk
-    research_desk.show(st)
+    research_desk.show(st, bundle=_research_bundle)
     st.divider()
     import research_panel
     research_panel.show(st, database=config.DB_PATH)
 
 with tab_desk:
-    st.info("Guru research: open the Research tab for the 15-stock intraday, swing and long-term evidence desk. Freshness and missing inputs are shown before any conditional plan.")
-    import intraday_momentum
-    import opportunity_cards
-    import news_desk
-    _raw_news, _raw_where = freshest_news()
-    st.markdown(news_desk.desk_html(_raw_news, _raw_where, opportunity_cards.reviewers()),
-                unsafe_allow_html=True)
-    intraday_momentum.show(st, details=False)
-    st.subheader("Swing opportunities")
-    action = latest[latest["display_signal"].isin(["Strong Buy", "Buy", "Exit"])]
-    if action.empty:
-        st.markdown('<div class="desk-note">No Buy or Exit signals currently qualify.</div>', unsafe_allow_html=True)
-    else:
-        opportunity_cards.show_swing(st, action.to_dict("records"), details=False, raw=_raw_news)
-    st.caption("Each card lists that stock's own latest headlines (unrated) and the Claude and Codex reviews. Full evidence is in News; trade details are in Stock detail.")
+    research_signal_cards.show(st, _combined, activity=_research_bundle['activity'],
+                              journal=_research_bundle['journal'], collection=_research_bundle['collection'])
 
 with tab_watch:
-    st.subheader("Latest intraday observations")
-    try:
-        _capture = json.loads(intraday_momentum.PATH.read_text(encoding="utf-8"))
-        _observations = _capture.get("observations", [])
-        st.caption("Captured " + str(_capture.get("checked_at", "unknown")) + " · observations, not independent trade recommendations")
-        if _observations:
-            st.dataframe([{"Stock": r["symbol"], "Captured state": r.get("state"), "Last price": r.get("price"),
-                           "Since open %": r.get("since_open_pct"), "Last 15 min %": r.get("recent_pct"),
-                           "Why": r.get("reason"), "Last trade": r.get("last_trade")} for r in _observations], hide_index=True)
-    except (OSError, ValueError, TypeError):
-        st.caption("No intraday capture available.")
-    st.subheader("Swing watchlist")
-    st.caption("Full ranking — colour-coded. Sort by clicking a column header.")
-    show = latest[["symbol", "final_score", "relative_strength", "signal",
-                   "risk_level", "confidence", "price", "stop_loss", "target1",
-                   "buy_zone_low", "buy_zone_high",
-                   "data_quality", "shariah_status"]].copy()
-    show["buy_zone"] = [f"{lo:.2f}–{hi:.2f}" if pd.notna(lo) and pd.notna(hi) else "—"
-                        for lo, hi in zip(show["buy_zone_low"], show["buy_zone_high"])]
-    show = show.drop(columns=["buy_zone_low", "buy_zone_high"])
-    show["news"] = [news_cell(s) for s in show["symbol"]]
-    show.columns = ["Symbol", "Score", "Market strength", "Signal", "Risk", "Quality",
-                    "Price", "Stop", "Target", "Data", "Shariah", "Buy-zone",
-                    "News"]
-
-    def _sig_css(v):
-        c = NEON_SIG.get(v)
-        if not c:
-            return ""
-        r, g, b = _hex_rgb(c)
-        return f"background-color:rgba({r},{g},{b},0.16);color:{c};font-weight:700"
-
-    def _risk_css(v):
-        c = NEON_RISK.get(v)
-        if not c:
-            return ""
-        r, g, b = _hex_rgb(c)
-        return f"background-color:rgba({r},{g},{b},0.16);color:{c};font-weight:700"
-
-    styled = (show.style
-              .map(_sig_css, subset=["Signal"])
-              .map(_risk_css, subset=["Risk"])
-              .format({"Score": "{:.1f}", "Market strength": "{:.0f}", "Quality": "{:.0f}",
-                       "Price": "{:.2f}", "Stop": "{:.2f}", "Target": "{:.2f}"},
-                      na_rep="—"))
-    st.dataframe(styled, width="stretch", hide_index=True, height=560)
-
-    # The two panels the trim orphaned: their functions survived with no caller,
-    # so they rendered nowhere. They belong with the full ranking rather than on
-    # the front page, which is what pushed them off it.
-    st.divider()
-    st.subheader("⚠ High score, but NOT a Buy — here's why")
-    _why_not_buy_section()
-    st.divider()
-    st.subheader("🔭 Early watch — building before the Buy band")
-    _early_watch_section()
+    st.subheader('15-stock combined watchlist')
+    st.caption('The same evaluated decisions as the Trading desk. Only Ready for review rows display current plan levels.')
+    research_signal_cards.show_table(st, _combined)
+    st.caption('The wider technical universe is separate historical attribution. Unreviewed stocks are not included in these research counts.')
 
 with tab_edge:
+    st.info("Original technical strategy results across its wider universe. These are not the combined research signals or their prospective performance.")
     import trading_review
     trading_review.show(st, rows)
     st.subheader("How past Buy signals performed")
@@ -799,89 +746,18 @@ with tab_edge:
         history_view.show(st, res)
 
 with tab_stock:
-    import depth_analysis
-    depth_analysis.show(st)
-    sym = st.selectbox("Stock", config.STOCKS)
-    r = db.last_run(sym)
-    if r:
-        from history_view import explain_run
-        r = dict(r)
-        r['main_reason'], r['main_risk'] = explain_run(r)
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Signal", r["signal"], f"{fmt(r['confidence'], 0)}/100 quality")
-        c2.metric("Final score", fmt(r["final_score"], 1))
-        c3.metric("Strength versus market", fmt(r.get("relative_strength"), 0))
-        c4.metric("Price", fmt(r["price"]))
-        c5.metric("Risk", r["risk_level"])
-        st.write("**Why:**", r["main_reason"])
-        st.write("**Main risk:**", r["main_risk"])
-        st.write("**Shariah:**", r["shariah_status"], " · **Market direction:**",
-                 {'risk-on': 'Rising', 'risk-off': 'Falling'}.get(r.get("market_regime"), 'Unknown'))
-        # The news read for this symbol, including the story so far when there
-        # is one -- silent when this is a first sighting.
-        st.markdown(news_line(sym), unsafe_allow_html=True)
-        try:
-            import news_memory
-            _thread = news_memory.thread_summary(sym)
-            if _thread:
-                with st.expander("📰 Story so far — every earlier read on this stock"):
-                    st.code(_thread, language=None)
-        except Exception:
-            pass
-        _news_window(sym, news_feed.get(sym))
-
-    # Banked bars FIRST. daily_ohlc is the same completed-session history the
-    # strategy reads, it is already local, and it cannot stall. The live EOD
-    # call is only a top-up: when the feed is down -- which has happened twice
-    # -- it used to block the whole page here, so the tabs below never painted.
-    eod, meta = None, {}
-    _bars = db.get_daily_ohlc(sym, limit=config.FEATURE_HISTORY_LIMIT)
-    if _bars:
-        eod = pd.DataFrame(_bars)[["date", "close", "volume"]]
-        meta = {"source": "banked daily bars (completed sessions)",
-                "as_of": eod["date"].max()}
-    else:
-        try:
-            eod, meta = data_fetcher.fetch_eod(sym)
-        except Exception as exc:
-            eod, meta = None, {"warning": f"No banked bars and the live feed "
-                                          f"is unreachable: {exc}"}
-    if eod is not None:
-        eod = eod.sort_values('date').tail(config.FEATURE_HISTORY_LIMIT)
-        st.caption(f"Source: {meta['source']} (as of {meta['as_of']})")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=eod["date"], y=eod["close"], name="Close",
-                                 line=dict(color=NEON["cyan"], width=2)))
-        fig.add_trace(go.Scatter(x=eod["date"], y=eod["close"].ewm(span=20).mean(),
-                                 name="Short price trend (20 days)",
-                                 line=dict(color=NEON["amber"], dash="dot")))
-        fig.add_trace(go.Scatter(x=eod["date"], y=eod["close"].ewm(span=40).mean(),
-                                 name="Slower price trend (40 days)",
-                                 line=dict(color=NEON["violet"], dash="dash")))
-        if r:
-            for lvl, nm, clr in ((r["support"], "Support", NEON["green"]),
-                                 (r["resistance"], "Resistance", NEON["red"]),
-                                 (r["stop_loss"], "Stop", NEON["red"])):
-                if lvl:
-                    fig.add_hline(y=lvl, line_dash="dot", line_color=clr,
-                                  annotation_text=nm,
-                                  annotation_font_color=clr)
-        fig.update_layout(title=f"{sym} — price & moving averages")
-        st.plotly_chart(neon_fig(fig, height=420), width="stretch")
-        volf = go.Figure(go.Bar(x=eod["date"], y=eod["volume"], name="Volume",
-                                marker=dict(color="rgba(0,229,255,0.5)")))
-        volf.update_layout(title="Volume")
-        st.plotly_chart(neon_fig(volf, height=220), width="stretch")
-    else:
-        st.error(meta.get("warning", "No price data."))
-
-    with st.expander("How past Buy signals performed"):
-        if st.button(f"Check past signals for {sym}", key="bt_one"):
-            res = bt_symbol(sym, os.stat(config.DB_PATH).st_mtime_ns)
-            import history_view
-            history_view.show(st, res)
+    import research_contract
+    import research_planner
+    sym = st.selectbox('Stock', list(research_contract.UNIVERSE), key='trading_detail_symbol')
+    signal = next(r for r in _combined['signals'] if r['symbol']==sym)
+    row = next(r for r in _research_bundle['desk']['rows'] if r['symbol']==sym)
+    research_signal_cards.show_card(st, signal, _combined)
+    st.subheader('Source-linked checks')
+    research_planner.show_checks(st, research_planner.checks(row, _research_bundle['desk']['context'], _signal_now))
+    st.caption('Annotated daily charts and the two-month scenario planner remain in Research. These current decisions share the same evaluation and evidence.')
 
 with tab_hist:
+    st.info("Original technical signal history, preserved for attribution. Buy or Exit here is a dated v8 label, not the current combined Trading desk decision.")
     sym = st.selectbox("Stock ", config.STOCKS, key="hist")
     hist = pd.DataFrame(db.run_history(sym, 300))
     if len(hist):
@@ -891,7 +767,7 @@ with tab_hist:
         st.line_chart(hist.set_index("run_time")[cols])
         st.caption("The score is a guide, not a chance of profit. Older results "
                    "compare the stock with the market.")
-        st.subheader("Signal history")
+        st.subheader("Original technical signal history")
         st.dataframe(hist[["run_time", "signal", "confidence", "price", "outcome"]],
                      width="stretch", hide_index=True)
     else:

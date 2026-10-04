@@ -22,8 +22,8 @@ jobs:
           import shariah_checker, corporate_actions, news_review_panel
           import news_desk, remote_data, news_memory, depth_analysis, upward_candidates
           import research_desk, research_contract, research_calendar, research_workspace, research_actions, research_sizing
-          import research_charts, research_planner, research_brief
+          import research_charts, research_planner, research_brief, research_signals, research_signal_cards
           print("frontend dependency imports OK")
           PY
       - name: Verify research freshness and safety gates
-        run: python -m unittest test_research_contract test_research_panel test_research_actions test_research_paper test_research_sizing test_research_workspace test_dashboard_public_access test_remote_cache test_research_charts test_research_planner test_research_brief -q
+        run: python -m unittest test_research_contract test_research_panel test_research_actions test_research_paper test_research_sizing test_research_workspace test_dashboard_public_access test_remote_cache test_research_charts test_research_planner test_research_brief test_research_signals test_research_signal_cards test_trading_integration -q

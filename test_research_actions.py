@@ -1,4 +1,6 @@
 from datetime import timedelta
+import copy
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -31,6 +33,56 @@ class ActionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             (Path(root)/'research_activity.json').write_text('{')
             with self.assertRaises(ValueError):a.update_activity(desk(),'a',root,NOW)
+
+    def test_primary_revocation_alerts_when_raw_swing_state_is_unchanged(self):
+        import research_signals
+        current=desk();combined=research_signals.from_desk(current)
+        with tempfile.TemporaryDirectory() as root:
+            a.update_activity(current,'a',root,NOW,combined=combined)
+            revised=copy.deepcopy(combined)
+            revised['signals'][0].update(status='Watching',plan=None,reasons=['Delayed source quote expired'])
+            result=a.update_activity(current,'b',root,NOW+timedelta(minutes=1),combined=revised)
+            self.assertEqual(len(result['items']),1)
+            item=result['items'][0]
+            self.assertEqual(item['before']['swing'],item['after']['swing'])
+            self.assertEqual(item['before']['primary_status'],'Ready for review')
+            self.assertEqual(item['after']['primary_status'],'Watching')
+            self.assertIn('primary_status',item['changed_fields'])
+            self.assertIn('primary_reasons',item['changed_fields'])
+
+    def test_first_upgrade_baselines_new_fields_without_bogus_alerts(self):
+        extra={'primary_status','signal_version','primary_reasons','intraday','quote_fresh','research_current'}
+        with tempfile.TemporaryDirectory() as root:
+            baseline=a.update_activity(desk(),'a',root,NOW)
+            for state in baseline['state'].values():
+                for key in extra:state.pop(key)
+            path=Path(root)/'research_activity.json';path.write_text(json.dumps(baseline))
+            upgraded=a.update_activity(desk(),'b',root,NOW)
+            self.assertFalse(upgraded['items'])
+            self.assertEqual(upgraded['state']['PRL']['primary_status'],'Ready for review')
+            changed=a.update_activity(desk(blocked=True),'c',root,NOW+timedelta(minutes=1))
+            self.assertIn('primary_status',changed['items'][0]['changed_fields'])
+
+    def test_upgrade_still_reports_real_existing_evidence_changes(self):
+        with tempfile.TemporaryDirectory() as root:
+            baseline=a.update_activity(desk(),'a',root,NOW)
+            for state in baseline['state'].values():
+                state.pop('primary_status');state.pop('signal_version')
+            path=Path(root)/'research_activity.json';path.write_text(json.dumps(baseline))
+            result=a.update_activity(desk(blocked=True),'b',root,NOW+timedelta(minutes=1))
+            self.assertEqual(len(result['items']),15)
+            self.assertIn('swing',result['items'][0]['changed_fields'])
+            self.assertNotIn('primary_status',result['items'][0]['changed_fields'])
+
+    def test_primary_version_change_is_attributed_after_baseline(self):
+        import research_signals
+        current=desk();combined=research_signals.from_desk(current)
+        with tempfile.TemporaryDirectory() as root:
+            a.update_activity(current,'a',root,NOW,combined=combined)
+            revised=copy.deepcopy(combined);revised['version']='combined-signal-test-v2'
+            result=a.update_activity(current,'b',root,NOW+timedelta(minutes=1),combined=revised)
+            self.assertEqual(len(result['items']),15)
+            self.assertEqual(result['items'][0]['changed_fields'],['signal_version'])
 
 if __name__=='__main__':unittest.main()
 

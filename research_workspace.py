@@ -7,6 +7,9 @@ import research_desk
 def show_overview(st,desk,journal,collection,comparisons,paper,activity):
     st.markdown('### What can I do now?')
     rows=[actions.action(r,desk) for r in desk['rows']]
+    for row in rows:
+        if row['status']!='Ready for review':
+            for key in ('entry','stop','target1','target2','holding_sessions','entry_review_due'):row[key]=None
     counts={k:sum(r['status']==k for r in rows) for k in ('Ready for review','Watching','Blocked')}
     for col,(label,count) in zip(st.columns(3),counts.items()):col.metric(label,count)
     st.caption('Ready means the existing research and price checks pass for review. It does not establish an executable price, suitable quantity or assured result. Intraday remains watch-only.')
@@ -25,7 +28,7 @@ def show_overview(st,desk,journal,collection,comparisons,paper,activity):
                        'Recheck by (PKT)':research_desk.pkt(r['entry_review_due']) if r['entry_review_due'] else 'New session / new valid review required',
                        'Intraday':r['intraday'],'Long term':r['investment']} for r in shown],hide_index=True,width='stretch',
                      key='research_action_table',on_select=explain_selected,selection_mode='single-row')
-        st.caption('Select a stock row to open its chart, two-month planner and source-linked checks below. Reference levels can be conditional while Watching. Only a new, valid quote in the frozen entry zone can support an entry review; all values are PKR. Detailed evidence is below.')
+        st.caption('Select a stock row to open its chart, two-month planner and source-linked checks below. Current plan levels appear only for Ready for review. Conditional scenarios remain in the dated planner; all values are PKR. Detailed evidence is below.')
     with tabs[1]:
         import research_brief
         research_brief.show(st,research_brief.build(desk,activity,now=research_actions_time(desk)))

@@ -219,3 +219,35 @@ Technical/context evidence buttons identify their targets as latest branch
 artifacts, which can advance after viewing. Their check details retain the
 observed run/research times and technical snapshot/configuration hashes; the
 latest-branch URL is not represented as an immutable copy of those inputs.
+
+### Primary Trading desk decision contract
+
+`research_signals.evaluate` is the single primary decision adapter, version
+`combined-signal-v1`. The Trading desk headline, 15 cards, combined watchlist,
+stock detail and Research reuse one evaluation time and the same bound inputs
+per app rerun. Open pages target a rerun every minute while connected; browser
+suspension, network errors and rendering can delay it. Manual refresh clears the
+bounded JSON caches. No recorded Ready status is trusted for current activation.
+
+Only `Ready for review` carries a current numerical swing plan. Watching,
+blocked, expired, closed-session and missing-source decisions withhold entry,
+stop and target levels on primary cards/tables. The original technical label,
+version, configuration, source hash and session remain separate attribution.
+Technical Watch/Exit/Avoid never become affirmative research entries. Current
+financial review currency is required alongside the existing company, sector,
+macro, geopolitical and event-risk guards. Unsupported intraday numeric plans
+remain unavailable; a withdrawn entry review does not imply a sell or exit fill.
+
+Duplicate instrument rows, future or contradictory artifact clocks, unknown
+quote provenance and fatal collection quality flags fail closed. Quote age must
+be strictly below 20 minutes and in-session research review age strictly below
+60 minutes, also before the context's own expiry and session boundary. These
+are maximum review tolerances, not claims of tick-live data or timely delivery.
+
+The single runtime writer stores `research_signals.json` with checkpoint and
+source hashes and adds `signal_version` / `combined_signals` to NEW immutable
+`research_decisions` entries. Original technical snapshots and older journals
+are never changed or reclassified. The prospective paper ledger retains its
+observed-condition semantics and never assumes an executable fill. The UI
+compares recorded attribution against current checks to surface withdrawn
+entry reviews, without rewriting the recorded checkpoint.
