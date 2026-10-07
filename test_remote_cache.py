@@ -14,11 +14,11 @@ class JsonCacheTests(unittest.TestCase):
     def tearDown(self):r._cache.clear();r._cache_nonce=0
     def test_cache_hit_then_bounded_new_url(self):
         with patch.object(r.time,'time',return_value=600):
-            a=r.fetch_json('research_status.json','runtime-state',ttl=60,get=self.get)
-        with patch.object(r.time,'time',return_value=659):r.fetch_json('research_status.json','runtime-state',ttl=60,get=self.get)
+            a=r.fetch_json('engine_status.json','runtime-state',ttl=60,get=self.get)
+        with patch.object(r.time,'time',return_value=659):r.fetch_json('engine_status.json','runtime-state',ttl=60,get=self.get)
         self.assertEqual(len(self.calls),1)
         with patch.object(r.time,'time',return_value=661):
-            b=r.fetch_json('research_status.json','runtime-state',ttl=60,get=self.get)
+            b=r.fetch_json('engine_status.json','runtime-state',ttl=60,get=self.get)
         self.assertEqual(len(self.calls),2);self.assertNotEqual(self.calls[0][0],self.calls[1][0])
         self.assertEqual(a,b);self.assertEqual(b['checked_at'],'2026-10-03T19:49:00Z')
         self.assertEqual(self.calls[-1][1]['headers']['Cache-Control'],'no-cache')

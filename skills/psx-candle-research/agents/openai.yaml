@@ -1,4 +1,0 @@
-interface:
-  display_name: "PSX Candle Research"
-  short_description: "Measure candle patterns without invented certainty"
-  default_prompt: "Use $psx-candle-research to assess the 60 stocks with dated candle evidence and measured outcomes."

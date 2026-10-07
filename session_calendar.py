@@ -21,10 +21,9 @@ def intervals(day):
     key = day.isoformat()
     if key in config.SESSION_OVERRIDES:
         return config.SESSION_OVERRIDES[key]
-    # Independently sourced, dated research/operations closure manifest.
-    import research_calendar
-    noticed = research_calendar.FROM <= day <= research_calendar.THROUGH and key in research_calendar.CLOSURES
-    if day.weekday() > 4 or key in config.EXCHANGE_HOLIDAYS or noticed:
+    # Dated PSX closure notices (exchange_closures.py).
+    import exchange_closures
+    if day.weekday() > 4 or key in config.EXCHANGE_HOLIDAYS or exchange_closures.is_closed(day):
         return []
     return [('09:17', '12:00'), ('14:32', '16:30')] if day.weekday() == 4 else [('09:32', '15:30')]
 

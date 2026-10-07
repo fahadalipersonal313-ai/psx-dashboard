@@ -6,9 +6,10 @@ import requests
 BASE="https://raw.githubusercontent.com/fahadalipersonal313-ai/psx-engine/runtime-state/"
 RUNTIME=Path("/tmp/psx-dashboard-runtime")
 DB=RUNTIME/"psx_engine.db"
+# Only what the dashboard reads (2026-10-07: intraday and short-horizon files
+# retired with the research layer). Ratings are also read from main when newer.
 FILES=["dashboard_snapshot.json","news_raw_24h.json","news_ai_ratings.json",
-       "news_codex_ratings.json","news_signals.json","intraday_momentum.json",
-       "short_horizon_latest.json","short_horizon_status.json"]
+       "news_codex_ratings.json","news_signals.json"]
 
 def _download(name,dest,timeout=45):
     r=requests.get(BASE+name,stream=True,timeout=timeout,headers={"Cache-Control":"no-cache"})

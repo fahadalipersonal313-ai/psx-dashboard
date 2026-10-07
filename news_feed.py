@@ -319,13 +319,31 @@ def sector_news_score(symbol, now=None):
     return round(50.0 + (base - 50.0) * mult * conf, 1)
 
 
-def _raw_sectors_cache(name):
-    """The `sectors` block of a ratings file, honouring the staleness gate."""
+# The dashboard deploys from a branch whose bundled ratings file can lag the
+# rater, which publishes to main hourly. The dashboard sets this True so the
+# newer of the bundled and main copies is read; the engine keeps it False and
+# never makes a network call here. Freshness gates below apply either way.
+PREFER_LIVE_RATINGS = False
+
+
+def _read_rating_json(name):
+    """Parsed ratings file or None. See PREFER_LIVE_RATINGS."""
     path = os.path.join(config.BASE_DIR, name)
     try:
         with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
+            local = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
+        local = None
+    if not PREFER_LIVE_RATINGS:
+        return local
+    import remote_data
+    return remote_data.newer(local, remote_data.fetch_json(name, "main"))
+
+
+def _raw_sectors_cache(name):
+    """The `sectors` block of a ratings file, honouring the staleness gate."""
+    raw = _read_rating_json(name)
+    if raw is None:
         return {}
     as_of, _ = _fresh_as_of(raw)
     if as_of is None:
@@ -401,11 +419,8 @@ def load_glm_ratings():
 
 
 def _load_rating_file(name):
-    path = os.path.join(config.BASE_DIR, name)
-    try:
-        with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    raw = _read_rating_json(name)
+    if raw is None:
         return {}, {"status": "absent"}
     as_of, age = _fresh_as_of(raw)
     if as_of is None:
